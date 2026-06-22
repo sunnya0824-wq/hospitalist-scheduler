@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { fetchPhysicians } from "@/lib/client";
 import type { PhysicianDTO } from "@/lib/api-types";
 
@@ -30,6 +31,7 @@ const EMPTY: Draft = {
 };
 
 export default function PhysiciansPage() {
+  const now = new Date();
   const [physicians, setPhysicians] = useState<PhysicianDTO[]>([]);
   const [editing, setEditing] = useState<Draft | null>(null);
   const [loading, setLoading] = useState(true);
@@ -165,6 +167,12 @@ export default function PhysiciansPage() {
                     ` · ${p.preferredDates.length} pref`}
                 </td>
                 <td className="px-4 py-2 text-right">
+                  <Link
+                    href={`/physicians/${p.id}?year=${now.getUTCFullYear()}&month=${now.getUTCMonth() + 1}`}
+                    className="mr-2 text-blue-600 hover:underline"
+                  >
+                    View
+                  </Link>
                   <button
                     onClick={() => startEdit(p)}
                     className="mr-2 text-blue-600 hover:underline"

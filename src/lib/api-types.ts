@@ -68,6 +68,10 @@ export interface MonthScheduleDTO {
   month: number;
   status: ScheduleStatus;
   generatedAt?: string | null;
+  rounderCount: number;
+  dayAdmitCount: number;
+  nightAdmit1Count: number;
+  nightAdmit2Count: number;
   assignments: AssignmentDTO[];
   lastRun: RunDTO | null;
 }

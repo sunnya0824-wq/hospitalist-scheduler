@@ -3,6 +3,7 @@
 import { useEffect, useState, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { MONTH_NAMES } from "@/lib/shift-style";
+import { scheduleColumns } from "@/lib/scheduler/shifts";
 import { fetchMonth } from "@/lib/client";
 import type { AssignmentDTO, MonthScheduleDTO } from "@/lib/api-types";
 
@@ -24,7 +25,14 @@ function PrintContent() {
   }
   const dates = Array.from(byDate.keys()).sort();
 
-  const cell = (items: AssignmentDTO[], type: string, idx?: number) =>
+  const columns = scheduleColumns({
+    rounderCount: data?.rounderCount ?? 10,
+    dayAdmitCount: data?.dayAdmitCount ?? 1,
+    nightAdmit1Count: data?.nightAdmit1Count ?? 1,
+    nightAdmit2Count: data?.nightAdmit2Count ?? 1,
+  });
+
+  const cell = (items: AssignmentDTO[], type: string, idx: number | null) =>
     items.find(
       (i) => i.shiftType === type && (idx ? i.rounderIndex === idx : true)
     )?.physicianName ?? "—";
@@ -51,14 +59,14 @@ function PrintContent() {
         <thead>
           <tr className="bg-slate-100 text-left">
             <th className="border border-slate-300 px-2 py-1">Date</th>
-            {Array.from({ length: 10 }, (_, i) => (
-              <th key={i} className="border border-slate-300 px-2 py-1">
-                R{i + 1}
+            {columns.map((c) => (
+              <th
+                key={`${c.shiftType}-${c.index ?? 0}`}
+                className="border border-slate-300 px-2 py-1"
+              >
+                {c.label}
               </th>
             ))}
-            <th className="border border-slate-300 px-2 py-1">Day Admit</th>
-            <th className="border border-slate-300 px-2 py-1">Night 1</th>
-            <th className="border border-slate-300 px-2 py-1">Night 2</th>
           </tr>
         </thead>
         <tbody>
@@ -69,20 +77,14 @@ function PrintContent() {
                 <td className="border border-slate-300 px-2 py-1 font-medium">
                   {date.slice(5)}
                 </td>
-                {Array.from({ length: 10 }, (_, i) => (
-                  <td key={i} className="border border-slate-300 px-2 py-1">
-                    {cell(items, "ROUNDER", i + 1)}
+                {columns.map((c) => (
+                  <td
+                    key={`${c.shiftType}-${c.index ?? 0}`}
+                    className="border border-slate-300 px-2 py-1"
+                  >
+                    {cell(items, c.shiftType, c.index)}
                   </td>
                 ))}
-                <td className="border border-slate-300 px-2 py-1">
-                  {cell(items, "ADMIN")}
-                </td>
-                <td className="border border-slate-300 px-2 py-1">
-                  {cell(items, "NIGHT_ADMIT_1")}
-                </td>
-                <td className="border border-slate-300 px-2 py-1">
-                  {cell(items, "NIGHT_ADMIT_2")}
-                </td>
               </tr>
             );
           })}

@@ -11,15 +11,23 @@ export async function fetchMonth(
   return res.json();
 }
 
+export interface CoverageInput {
+  rounderCount?: number;
+  dayAdmitCount?: number;
+  nightAdmit1Count?: number;
+  nightAdmit2Count?: number;
+}
+
 export async function generateMonth(
   year: number,
   month: number,
-  allowOverMax = false
+  allowOverMax = false,
+  coverage?: CoverageInput
 ): Promise<void> {
   const res = await fetch("/api/schedule/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ year, month, allowOverMax }),
+    body: JSON.stringify({ year, month, allowOverMax, ...(coverage ?? {}) }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));

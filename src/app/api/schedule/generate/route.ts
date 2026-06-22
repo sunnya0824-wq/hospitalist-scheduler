@@ -17,6 +17,21 @@ export async function POST(req: Request) {
     );
   }
 
-  const result = await generateSchedule(year, month, allowOverMax);
+  const hasCoverage =
+    body.rounderCount !== undefined ||
+    body.dayAdmitCount !== undefined ||
+    body.nightAdmit1Count !== undefined ||
+    body.nightAdmit2Count !== undefined;
+
+  const coverage = hasCoverage
+    ? {
+        rounderCount: body.rounderCount,
+        dayAdmitCount: body.dayAdmitCount,
+        nightAdmit1Count: body.nightAdmit1Count,
+        nightAdmit2Count: body.nightAdmit2Count,
+      }
+    : undefined;
+
+  const result = await generateSchedule(year, month, allowOverMax, coverage);
   return NextResponse.json(result);
 }

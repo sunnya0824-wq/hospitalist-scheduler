@@ -66,6 +66,10 @@ model ScheduleMonth {
   year         Int
   month        Int // 1-12
   status       ScheduleStatus   @default(DRAFT)
+  rounderCount     Int          @default(10) // 1-20 ROUNDER slots/day
+  dayAdmitCount    Int          @default(1)  // 0-3 ADMIN slots/day
+  nightAdmit1Count Int          @default(1)  // 0-2 NIGHT_ADMIT_1 slots/day
+  nightAdmit2Count Int          @default(1)  // 0-2 NIGHT_ADMIT_2 slots/day
   createdAt    DateTime         @default(now())
   generatedAt  DateTime?
 

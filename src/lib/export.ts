@@ -1,20 +1,20 @@
 import type { MonthSchedule } from "./schedule-service";
-import { ROUNDER_COUNT } from "./scheduler/shifts";
+import { scheduleColumns } from "./scheduler/shifts";
 
 /**
  * Flatten a month schedule into a header row + data rows, one row per
- * calendar day, columns for each of the 13 shift slots. Shared by the CSV,
+ * calendar day, with one column per configured shift slot. Shared by the CSV,
  * XLSX, and copy-to-clipboard exporters so every format is consistent.
  */
 export function buildScheduleTable(schedule: MonthSchedule): string[][] {
-  const header = [
-    "Date",
-    "Day",
-    ...Array.from({ length: ROUNDER_COUNT }, (_, i) => `Rounder ${i + 1}`),
-    "Day Admit",
-    "Night Admit 1",
-    "Night Admit 2",
-  ];
+  const columns = scheduleColumns({
+    rounderCount: schedule.rounderCount,
+    dayAdmitCount: schedule.dayAdmitCount,
+    nightAdmit1Count: schedule.nightAdmit1Count,
+    nightAdmit2Count: schedule.nightAdmit2Count,
+  });
+
+  const header = ["Date", "Day", ...columns.map((c) => c.label)];
 
   // Group assignments by date.
   const byDate = new Map<string, MonthSchedule["assignments"]>();
@@ -28,7 +28,7 @@ export function buildScheduleTable(schedule: MonthSchedule): string[][] {
 
   for (const date of Array.from(byDate.keys()).sort()) {
     const dayAssignments = byDate.get(date)!;
-    const cellFor = (type: string, idx?: number) => {
+    const cellFor = (type: string, idx: number | null) => {
       const a = dayAssignments.find(
         (x) => x.shiftType === type && (idx ? x.rounderIndex === idx : true)
       );
@@ -39,12 +39,7 @@ export function buildScheduleTable(schedule: MonthSchedule): string[][] {
     rows.push([
       date,
       dow,
-      ...Array.from({ length: ROUNDER_COUNT }, (_, i) =>
-        cellFor("ROUNDER", i + 1)
-      ),
-      cellFor("ADMIN"),
-      cellFor("NIGHT_ADMIT_1"),
-      cellFor("NIGHT_ADMIT_2"),
+      ...columns.map((c) => cellFor(c.shiftType, c.index)),
     ]);
   }
 

@@ -49,7 +49,7 @@ export function Sidebar() {
         })}
       </nav>
       <div className="hidden px-4 py-4 text-xs text-slate-400 sm:block">
-        10 rounders · 1 admin · 2 nights / day
+        Adjustable daily coverage
       </div>
     </aside>
   );

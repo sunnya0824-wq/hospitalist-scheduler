@@ -6,6 +6,9 @@ import {
   runScheduler,
   toISODate,
   fromISODate,
+  normalizeCoverage,
+  DEFAULT_COVERAGE,
+  type CoverageSettings,
   type SchedulerPhysician,
   type ShiftSlot,
   type SchedulerResult,
@@ -48,25 +51,41 @@ export async function loadSchedulerPhysicians(): Promise<SchedulerPhysician[]> {
   });
 }
 
-/** Get or create the ScheduleMonth row for a year/month. */
-export async function getOrCreateMonth(year: number, month: number) {
+/**
+ * Get or create the ScheduleMonth row for a year/month. When coverage settings
+ * are supplied they are persisted (updating an existing row before generation).
+ */
+export async function getOrCreateMonth(
+  year: number,
+  month: number,
+  coverage?: CoverageSettings
+) {
   return prisma.scheduleMonth.upsert({
     where: { year_month: { year, month } },
-    update: {},
-    create: { year, month },
+    update: coverage ? { ...coverage } : {},
+    create: { year, month, ...(coverage ?? {}) },
   });
 }
 
 /**
  * Generate (or regenerate) a month's schedule. Existing locked or manual
  * assignments are preserved and fed back into the scheduler as fixed slots.
+ * Coverage settings, when provided, are saved on the month before generating.
  */
 export async function generateSchedule(
   year: number,
   month: number,
-  allowOverMax = false
+  allowOverMax = false,
+  coverage?: Partial<CoverageSettings>
 ): Promise<SchedulerResult> {
-  const scheduleMonth = await getOrCreateMonth(year, month);
+  const settings = coverage ? normalizeCoverage(coverage) : undefined;
+  const scheduleMonth = await getOrCreateMonth(year, month, settings);
+  const activeCoverage: CoverageSettings = {
+    rounderCount: scheduleMonth.rounderCount,
+    dayAdmitCount: scheduleMonth.dayAdmitCount,
+    nightAdmit1Count: scheduleMonth.nightAdmit1Count,
+    nightAdmit2Count: scheduleMonth.nightAdmit2Count,
+  };
   const run = await prisma.scheduleGenerationRun.create({
     data: { scheduleMonthId: scheduleMonth.id },
   });
@@ -85,7 +104,7 @@ export async function generateSchedule(
   }
 
   // Build the slot grid, seeding preserved assignments.
-  const slots: ShiftSlot[] = generateSlots(year, month).map((slot) => {
+  const slots: ShiftSlot[] = generateSlots(year, month, activeCoverage).map((slot) => {
     const keep = preserved.get(
       slotKey(slot.date, slot.shiftType, slot.rounderIndex)
     );
@@ -167,6 +186,10 @@ export async function getMonthSchedule(year: number, month: number) {
       month,
       status: "DRAFT" as const,
       generatedAt: null,
+      rounderCount: DEFAULT_COVERAGE.rounderCount,
+      dayAdmitCount: DEFAULT_COVERAGE.dayAdmitCount,
+      nightAdmit1Count: DEFAULT_COVERAGE.nightAdmit1Count,
+      nightAdmit2Count: DEFAULT_COVERAGE.nightAdmit2Count,
       assignments: [] as AssignmentDTO[],
       lastRun: null,
     };
@@ -193,6 +216,10 @@ export async function getMonthSchedule(year: number, month: number) {
     month,
     status: scheduleMonth.status,
     generatedAt: scheduleMonth.generatedAt,
+    rounderCount: scheduleMonth.rounderCount,
+    dayAdmitCount: scheduleMonth.dayAdmitCount,
+    nightAdmit1Count: scheduleMonth.nightAdmit1Count,
+    nightAdmit2Count: scheduleMonth.nightAdmit2Count,
     assignments,
     lastRun: scheduleMonth.runs[0] ?? null,
   };

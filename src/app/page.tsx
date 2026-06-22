@@ -5,10 +5,28 @@ import Link from "next/link";
 import { MonthPicker } from "@/components/MonthPicker";
 import { ShiftLegend } from "@/components/ShiftChip";
 import { MONTH_NAMES } from "@/lib/shift-style";
+import { daysInMonth } from "@/lib/scheduler/dates";
+import {
+  DEFAULT_COVERAGE,
+  normalizeCoverage,
+  totalDailySlots,
+  type CoverageSettings,
+} from "@/lib/scheduler/shifts";
 import { fetchMonth, generateMonth } from "@/lib/client";
 import type { MonthScheduleDTO } from "@/lib/api-types";
 
-const SLOTS_PER_DAY = 13;
+const COVERAGE_STORAGE_KEY = "hs.coverage";
+
+function loadStoredCoverage(): CoverageSettings {
+  if (typeof window === "undefined") return DEFAULT_COVERAGE;
+  try {
+    const raw = window.localStorage.getItem(COVERAGE_STORAGE_KEY);
+    if (!raw) return DEFAULT_COVERAGE;
+    return normalizeCoverage(JSON.parse(raw));
+  } catch {
+    return DEFAULT_COVERAGE;
+  }
+}
 
 export default function DashboardPage() {
   const now = new Date();
@@ -18,6 +36,12 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [coverage, setCoverage] = useState<CoverageSettings>(DEFAULT_COVERAGE);
+
+  // Hydrate coverage inputs from localStorage after mount (SSR-safe).
+  useEffect(() => {
+    setCoverage(loadStoredCoverage());
+  }, []);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -34,11 +58,36 @@ export default function DashboardPage() {
     load();
   }, [load]);
 
+  const setCount = (key: keyof CoverageSettings, value: number) => {
+    setCoverage((c) => {
+      const next = { ...c, [key]: Number.isFinite(value) ? value : 0 };
+      try {
+        window.localStorage.setItem(COVERAGE_STORAGE_KEY, JSON.stringify(next));
+      } catch {
+        /* ignore quota / private-mode errors */
+      }
+      return next;
+    });
+  };
+
+  const totalPerDay = totalDailySlots(coverage);
+  const numDays = daysInMonth(year, month);
+  const projectedAssignments = numDays * totalPerDay;
+
   const onGenerate = async () => {
     setGenerating(true);
     setMessage(null);
     try {
-      await generateMonth(year, month);
+      const settings = normalizeCoverage(coverage);
+      try {
+        window.localStorage.setItem(
+          COVERAGE_STORAGE_KEY,
+          JSON.stringify(settings)
+        );
+      } catch {
+        /* ignore */
+      }
+      await generateMonth(year, month, false, settings);
       await load();
       setMessage("Schedule generated.");
     } catch (e) {
@@ -67,14 +116,21 @@ export default function DashboardPage() {
             {MONTH_NAMES[month - 1]} {year} coverage overview
           </p>
         </div>
-        <MonthPicker year={year} month={month} onChange={(y, m) => {
-          setYear(y);
-          setMonth(m);
-        }} />
+        <div className="text-right">
+          <MonthPicker year={year} month={month} onChange={(y, m) => {
+            setYear(y);
+            setMonth(m);
+          }} />
+          <p className="mt-1 text-xs text-slate-500">
+            {numDays} days in {MONTH_NAMES[month - 1]} {year} · projected{" "}
+            <strong>{projectedAssignments}</strong> assignments (
+            {numDays} × {totalPerDay}/day)
+          </p>
+        </div>
       </header>
 
       <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard label="Total slots" value={total} hint="13 / day" />
+        <StatCard label="Total slots" value={total} hint={`${totalPerDay} / day`} />
         <StatCard label="Filled" value={filled} accent="text-emerald-600" />
         <StatCard
           label="Coverage gaps"
@@ -86,6 +142,46 @@ export default function DashboardPage() {
           value={fairness === null ? "—" : `${fairness}`}
           hint="0–100"
         />
+      </div>
+
+      <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5">
+        <h2 className="font-semibold">Daily coverage</h2>
+        <p className="text-sm text-slate-500">
+          Adjust how many of each shift to fill per day for this month.
+        </p>
+        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <CountField
+            label="Rounders"
+            value={coverage.rounderCount}
+            min={1}
+            max={20}
+            onChange={(v) => setCount("rounderCount", v)}
+          />
+          <CountField
+            label="Day Admitting"
+            value={coverage.dayAdmitCount}
+            min={0}
+            max={3}
+            onChange={(v) => setCount("dayAdmitCount", v)}
+          />
+          <CountField
+            label="Night Admit 1"
+            value={coverage.nightAdmit1Count}
+            min={0}
+            max={2}
+            onChange={(v) => setCount("nightAdmit1Count", v)}
+          />
+          <CountField
+            label="Night Admit 2"
+            value={coverage.nightAdmit2Count}
+            min={0}
+            max={2}
+            onChange={(v) => setCount("nightAdmit2Count", v)}
+          />
+        </div>
+        <p className="mt-4 text-sm font-medium text-slate-700">
+          Total slots per day = {totalPerDay}
+        </p>
       </div>
 
       <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5">
@@ -160,11 +256,48 @@ export default function DashboardPage() {
           <p className="mt-3 text-sm text-slate-500">
             No schedule yet for this month. Click{" "}
             <strong>Generate Schedule</strong> to build one. Each day needs{" "}
-            {SLOTS_PER_DAY} assignments.
+            {totalPerDay} assignments.
           </p>
         )}
       </div>
     </div>
+  );
+}
+
+function CountField({
+  label,
+  value,
+  min,
+  max,
+  onChange,
+}: {
+  label: string;
+  value: number;
+  min: number;
+  max: number;
+  onChange: (value: number) => void;
+}) {
+  return (
+    <label className="block">
+      <span className="text-xs font-medium text-slate-600">
+        {label}{" "}
+        <span className="text-slate-400">
+          ({min}–{max})
+        </span>
+      </span>
+      <input
+        type="number"
+        min={min}
+        max={max}
+        value={value}
+        onChange={(e) => {
+          const n = Number(e.target.value);
+          if (!Number.isFinite(n)) return;
+          onChange(Math.min(max, Math.max(min, Math.round(n))));
+        }}
+        className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+      />
+    </label>
   );
 }
 

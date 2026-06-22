@@ -5,6 +5,7 @@ import Link from "next/link";
 import { MonthPicker } from "@/components/MonthPicker";
 import { ShiftChip, ShiftLegend } from "@/components/ShiftChip";
 import { MONTH_NAMES } from "@/lib/shift-style";
+import { scheduleColumns } from "@/lib/scheduler/shifts";
 import { fetchMonth, fetchPhysicians, generateMonth } from "@/lib/client";
 import type {
   AssignmentDTO,
@@ -432,27 +433,21 @@ function formatDate(iso: string): string {
 
 function buildTSV(data: MonthScheduleDTO): string {
   const byDate = groupByDate(data.assignments);
-  const header = [
-    "Date",
-    ...Array.from({ length: 10 }, (_, i) => `R${i + 1}`),
-    "Day Admit",
-    "Night1",
-    "Night2",
-  ].join("\t");
+  const columns = scheduleColumns({
+    rounderCount: data.rounderCount,
+    dayAdmitCount: data.dayAdmitCount,
+    nightAdmit1Count: data.nightAdmit1Count,
+    nightAdmit2Count: data.nightAdmit2Count,
+  });
+  const header = ["Date", ...columns.map((c) => c.label)].join("\t");
   const lines = [header];
   for (const [date, items] of byDate) {
-    const cell = (type: string, idx?: number) =>
+    const cell = (type: string, idx: number | null) =>
       items.find(
         (i) => i.shiftType === type && (idx ? i.rounderIndex === idx : true)
       )?.physicianName ?? "";
     lines.push(
-      [
-        date,
-        ...Array.from({ length: 10 }, (_, i) => cell("ROUNDER", i + 1)),
-        cell("ADMIN"),
-        cell("NIGHT_ADMIT_1"),
-        cell("NIGHT_ADMIT_2"),
-      ].join("\t")
+      [date, ...columns.map((c) => cell(c.shiftType, c.index))].join("\t")
     );
   }
   return lines.join("\n");
