@@ -248,7 +248,7 @@ function PhysicianView({
             <th className="px-4 py-2">Physician</th>
             <th className="px-4 py-2">Total</th>
             <th className="px-4 py-2">Rounding</th>
-            <th className="px-4 py-2">Admin</th>
+            <th className="px-4 py-2">Day Admit</th>
             <th className="px-4 py-2">Nights</th>
             <th className="px-4 py-2">Dates</th>
           </tr>
@@ -435,7 +435,7 @@ function buildTSV(data: MonthScheduleDTO): string {
   const header = [
     "Date",
     ...Array.from({ length: 10 }, (_, i) => `R${i + 1}`),
-    "Admin",
+    "Day Admit",
     "Night1",
     "Night2",
   ].join("\t");

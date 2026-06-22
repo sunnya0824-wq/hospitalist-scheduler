@@ -56,7 +56,7 @@ function PrintContent() {
                 R{i + 1}
               </th>
             ))}
-            <th className="border border-slate-300 px-2 py-1">Admin</th>
+            <th className="border border-slate-300 px-2 py-1">Day Admit</th>
             <th className="border border-slate-300 px-2 py-1">Night 1</th>
             <th className="border border-slate-300 px-2 py-1">Night 2</th>
           </tr>

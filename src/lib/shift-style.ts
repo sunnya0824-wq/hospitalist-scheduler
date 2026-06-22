@@ -11,18 +11,18 @@ export const SHIFT_STYLES: Record<
     label: "Rounder",
   },
   ADMIN: {
-    chip: "bg-amber-100 text-amber-800 border-amber-300",
+    chip: "bg-amber-100 text-amber-900 border-amber-300",
     dot: "bg-amber-500",
-    label: "Admin",
+    label: "Day Admitting",
   },
   NIGHT_ADMIT_1: {
-    chip: "bg-indigo-100 text-indigo-800 border-indigo-300",
-    dot: "bg-indigo-500",
+    chip: "bg-teal-100 text-teal-900 border-teal-400",
+    dot: "bg-teal-500",
     label: "Night Admit 1",
   },
   NIGHT_ADMIT_2: {
-    chip: "bg-purple-100 text-purple-800 border-purple-300",
-    dot: "bg-purple-500",
+    chip: "bg-fuchsia-100 text-fuchsia-900 border-fuchsia-400",
+    dot: "bg-fuchsia-600",
     label: "Night Admit 2",
   },
 };

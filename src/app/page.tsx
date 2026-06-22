@@ -93,7 +93,7 @@ export default function DashboardPage() {
           <div>
             <h2 className="font-semibold">Generate schedule</h2>
             <p className="text-sm text-slate-500">
-              Assigns nights first, then admin, then rounders — preserving any
+              Assigns nights first, then day admitting, then rounders — preserving any
               locked or manually edited slots.
             </p>
           </div>

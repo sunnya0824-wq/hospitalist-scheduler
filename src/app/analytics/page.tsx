@@ -87,11 +87,11 @@ export default function AnalyticsPage() {
               stats={stats}
               value={(s) => s.nights}
               max={maxNights}
-              color="bg-indigo-500"
+              color="bg-teal-500"
             />
           </Section>
 
-          <Section title="Admin & weekend distribution">
+          <Section title="Day admitting & weekend distribution">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
@@ -99,7 +99,7 @@ export default function AnalyticsPage() {
                     <th className="px-3 py-2">Physician</th>
                     <th className="px-3 py-2">Total</th>
                     <th className="px-3 py-2">Rounding</th>
-                    <th className="px-3 py-2">Admin</th>
+                    <th className="px-3 py-2">Day Admit</th>
                     <th className="px-3 py-2">Nights</th>
                     <th className="px-3 py-2">Weekends</th>
                     <th className="px-3 py-2">Target</th>

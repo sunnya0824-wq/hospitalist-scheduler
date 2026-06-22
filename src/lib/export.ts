@@ -11,7 +11,7 @@ export function buildScheduleTable(schedule: MonthSchedule): string[][] {
     "Date",
     "Day",
     ...Array.from({ length: ROUNDER_COUNT }, (_, i) => `Rounder ${i + 1}`),
-    "Admin",
+    "Day Admit",
     "Night Admit 1",
     "Night Admit 2",
   ];

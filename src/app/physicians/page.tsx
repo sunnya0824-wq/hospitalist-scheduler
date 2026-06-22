@@ -130,7 +130,7 @@ export default function PhysiciansPage() {
               <th className="px-4 py-2">Desired</th>
               <th className="px-4 py-2">Min/Max</th>
               <th className="px-4 py-2">Nights</th>
-              <th className="px-4 py-2">Admin</th>
+              <th className="px-4 py-2">Day Admit</th>
               <th className="px-4 py-2">Pref</th>
               <th className="px-4 py-2">Dates</th>
               <th className="px-4 py-2"></th>
@@ -292,8 +292,8 @@ function PhysicianForm({
           {numField("maxRounding", "Max round")}
           {numField("minNights", "Min nights")}
           {numField("maxNights", "Max nights")}
-          {numField("minAdmin", "Min admin")}
-          {numField("maxAdmin", "Max admin")}
+          {numField("minAdmin", "Min day admit")}
+          {numField("maxAdmin", "Max day admit")}
         </div>
 
         <div className="mb-4 flex flex-wrap gap-4">
@@ -311,7 +311,7 @@ function PhysicianForm({
               checked={form.adminEligible ?? false}
               onChange={(e) => set("adminEligible", e.target.checked)}
             />
-            Admin eligible
+            Day admitting eligible
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input
