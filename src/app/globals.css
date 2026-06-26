@@ -3,21 +3,77 @@
 @tailwind utilities;
 
 :root {
-  --bg: #f1f5f9;
+  --bg: #0a0e1a;
+  --surface: #0f172a;
+  --border: #1e293b;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --cyan: #22d3ee;
+  --magenta: #e879f9;
 }
 
 body {
   background-color: var(--bg);
-  color: #0f172a;
+  color: var(--text);
+  background-image:
+    radial-gradient(circle at 15% -10%, rgba(34, 211, 238, 0.08), transparent 40%),
+    radial-gradient(circle at 90% 0%, rgba(232, 121, 249, 0.07), transparent 35%);
+  background-attachment: fixed;
 }
 
-/* Print-friendly rules used by /schedule/print. */
+@layer components {
+  /* Reusable neon glow effects */
+  .neon-glow-cyan {
+    box-shadow: 0 0 12px rgba(34, 211, 238, 0.4);
+  }
+  .neon-glow-magenta {
+    box-shadow: 0 0 12px rgba(232, 121, 249, 0.4);
+  }
+  .neon-glow-cyan-hover:hover {
+    box-shadow: 0 0 14px rgba(34, 211, 238, 0.5);
+    border-color: rgba(34, 211, 238, 0.6);
+  }
+  .neon-text-cyan {
+    text-shadow: 0 0 12px rgba(34, 211, 238, 0.55);
+  }
+  .neon-text-magenta {
+    text-shadow: 0 0 12px rgba(232, 121, 249, 0.55);
+  }
+  /* Surface card with cyan-tinted border */
+  .neon-card {
+    background-color: var(--surface);
+    border: 1px solid var(--border);
+  }
+  .neon-card:hover {
+    border-color: rgba(34, 211, 238, 0.3);
+  }
+}
+
+/* Print-friendly rules used by /schedule/print: force a clean light layout. */
+.print-light,
+.print-light * {
+  color: #0f172a !important;
+  text-shadow: none !important;
+  box-shadow: none !important;
+}
+.print-light {
+  background: #fff !important;
+}
+
 @media print {
   .no-print {
     display: none !important;
   }
+  html,
   body {
-    background: #fff;
+    background: #fff !important;
+    color: #000 !important;
+    background-image: none !important;
+  }
+  body * {
+    color: #000 !important;
+    text-shadow: none !important;
+    box-shadow: none !important;
   }
   .print-table {
     font-size: 10px;

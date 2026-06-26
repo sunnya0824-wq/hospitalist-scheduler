@@ -1,7 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { MonthPicker } from "@/components/MonthPicker";
 import { ShiftChip, ShiftLegend } from "@/components/ShiftChip";
 import { MONTH_NAMES } from "@/lib/shift-style";
@@ -15,10 +16,16 @@ import type {
 
 type View = "day" | "physician";
 
-export default function SchedulePage() {
+function ScheduleContent() {
+  const router = useRouter();
+  const search = useSearchParams();
   const now = new Date();
-  const [year, setYear] = useState(now.getUTCFullYear());
-  const [month, setMonth] = useState(now.getUTCMonth() + 1);
+  const [year, setYear] = useState(
+    Number(search.get("year")) || now.getUTCFullYear()
+  );
+  const [month, setMonth] = useState(
+    Number(search.get("month")) || now.getUTCMonth() + 1
+  );
   const [data, setData] = useState<MonthScheduleDTO | null>(null);
   const [physicians, setPhysicians] = useState<PhysicianDTO[]>([]);
   const [view, setView] = useState<View>("day");
@@ -38,6 +45,12 @@ export default function SchedulePage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const changeMonth = (y: number, m: number) => {
+    setYear(y);
+    setMonth(m);
+    router.replace(`/schedule?year=${y}&month=${m}`);
+  };
 
   const regenerate = async () => {
     setBusy(true);
@@ -64,37 +77,34 @@ export default function SchedulePage() {
     <div className="mx-auto max-w-6xl">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Schedule</h1>
-          <p className="text-sm text-slate-500">
+          <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-100 neon-text-cyan">
+            Schedule
+          </h1>
+          <p className="text-sm text-slate-400">
             {MONTH_NAMES[month - 1]} {year}
           </p>
         </div>
-        <MonthPicker
-          year={year}
-          month={month}
-          onChange={(y, m) => {
-            setYear(y);
-            setMonth(m);
-          }}
-        />
+        <MonthPicker year={year} month={month} onChange={changeMonth} />
       </header>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div className="inline-flex rounded-lg border border-slate-300 bg-white p-0.5">
+        <div className="inline-flex rounded-lg border border-[#1e293b] bg-[#0f172a] p-0.5">
           <button
             onClick={() => setView("day")}
-            className={`rounded-md px-3 py-1 text-sm font-medium ${
-              view === "day" ? "bg-blue-600 text-white" : "text-slate-600"
+            className={`rounded-md px-3 py-1 text-sm font-medium transition ${
+              view === "day"
+                ? "bg-cyan-500/15 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.35)]"
+                : "text-slate-400 hover:text-cyan-200"
             }`}
           >
             By day
           </button>
           <button
             onClick={() => setView("physician")}
-            className={`rounded-md px-3 py-1 text-sm font-medium ${
+            className={`rounded-md px-3 py-1 text-sm font-medium transition ${
               view === "physician"
-                ? "bg-blue-600 text-white"
-                : "text-slate-600"
+                ? "bg-cyan-500/15 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.35)]"
+                : "text-slate-400 hover:text-cyan-200"
             }`}
           >
             By physician
@@ -104,43 +114,43 @@ export default function SchedulePage() {
           <button
             onClick={regenerate}
             disabled={busy}
-            className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 hover:shadow-[0_0_14px_rgba(34,211,238,0.5)] disabled:opacity-50"
           >
             {busy ? "Regenerating…" : "Regenerate"}
           </button>
           <button
             onClick={copyTSV}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
           >
             {copied ? "Copied!" : "Copy (TSV)"}
           </button>
           <a
             href={`/api/export/csv?year=${year}&month=${month}`}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
           >
             CSV
           </a>
           <a
             href={`/api/export/xlsx?year=${year}&month=${month}`}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
           >
             XLSX
           </a>
           <Link
             href={`/schedule/print?year=${year}&month=${month}`}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
           >
             Print
           </Link>
         </div>
       </div>
 
-      <div className="mb-4 rounded-lg border border-slate-200 bg-white p-3">
+      <div className="mb-4 rounded-lg border border-[#1e293b] bg-[#0f172a] p-3">
         <ShiftLegend />
       </div>
 
       {assignments.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-500">
+        <div className="rounded-xl border border-dashed border-[#1e293b] bg-[#0f172a] p-10 text-center text-slate-400">
           No schedule for this month yet. Click <strong>Regenerate</strong> to
           build one.
         </div>
@@ -185,7 +195,7 @@ function DayView({
       {Array.from(byDate.entries()).map(([date, items]) => (
         <div
           key={date}
-          className="rounded-xl border border-slate-200 bg-white p-4"
+          className="rounded-xl border border-[#1e293b] bg-[#0f172a] p-4"
         >
           <div className="mb-2 flex items-center justify-between">
             <h3 className="font-semibold">{formatDate(date)}</h3>
@@ -242,10 +252,10 @@ function PhysicianView({
     .filter((r) => r.items.length > 0 || r.p.active);
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+    <div className="overflow-x-auto rounded-xl border border-[#1e293b] bg-[#0f172a]">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b border-slate-200 text-left text-xs uppercase text-slate-400">
+          <tr className="border-b border-[#1e293b] text-left text-xs uppercase text-cyan-400/70">
             <th className="px-4 py-2">Physician</th>
             <th className="px-4 py-2">Total</th>
             <th className="px-4 py-2">Rounding</th>
@@ -264,13 +274,13 @@ function PhysicianView({
               i.shiftType.startsWith("NIGHT")
             ).length;
             return (
-              <tr key={p.id} className="border-b border-slate-100">
-                <td className="px-4 py-2 font-medium">{p.fullName}</td>
+              <tr key={p.id} className="border-b border-[#1e293b] transition hover:bg-cyan-500/5">
+                <td className="px-4 py-2 font-medium text-slate-200">{p.fullName}</td>
                 <td className="px-4 py-2">{items.length}</td>
                 <td className="px-4 py-2">{rounding}</td>
                 <td className="px-4 py-2">{admin}</td>
                 <td className="px-4 py-2">{nights}</td>
-                <td className="px-4 py-2 text-xs text-slate-500">
+                <td className="px-4 py-2 text-xs text-slate-400">
                   {items
                     .map((i) => i.date.slice(8))
                     .sort()
@@ -287,11 +297,11 @@ function PhysicianView({
 
 function WarningsPanel({ warnings }: { warnings: string[] }) {
   return (
-    <div className="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
-      <h3 className="mb-2 font-semibold text-amber-800">
+    <div className="mt-6 rounded-xl border border-amber-400/40 bg-amber-500/10 p-4 shadow-[0_0_12px_rgba(251,191,36,0.2)]">
+      <h3 className="mb-2 font-semibold uppercase tracking-wide text-amber-300">
         Warnings ({warnings.length})
       </h3>
-      <ul className="max-h-64 space-y-1 overflow-y-auto text-sm text-amber-800">
+      <ul className="max-h-64 space-y-1 overflow-y-auto text-sm text-amber-200/90">
         {warnings.map((w, i) => (
           <li key={i}>• {w}</li>
         ))}
@@ -333,15 +343,15 @@ function EditModal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/30 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md rounded-xl bg-white p-5 shadow-xl"
+        className="w-full max-w-md rounded-xl border border-cyan-400/30 bg-[#0f172a] p-5 shadow-[0_0_30px_rgba(34,211,238,0.25)]"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="mb-1 font-semibold">Edit assignment</h3>
-        <p className="mb-4 text-sm text-slate-500">
+        <p className="mb-4 text-sm text-slate-400">
           {formatDate(assignment.date)} ·{" "}
           {assignment.shiftType === "ROUNDER"
             ? `Rounder ${assignment.rounderIndex}`
@@ -353,7 +363,7 @@ function EditModal({
         <select
           value={physicianId}
           onChange={(e) => setPhysicianId(e.target.value)}
-          className="mb-4 w-full rounded-md border border-slate-300 px-2 py-2 text-sm"
+          className="mb-4 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-2 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
         >
           <option value="">— Unfilled —</option>
           {physicians.map((p) => (
@@ -376,26 +386,34 @@ function EditModal({
           <button
             onClick={() => patch({ clear: true })}
             disabled={saving}
-            className="rounded-lg border border-rose-300 px-3 py-2 text-sm text-rose-600 hover:bg-rose-50"
+            className="rounded-lg border border-rose-400/50 px-3 py-2 text-sm text-rose-300 transition hover:bg-rose-500/10 hover:shadow-[0_0_10px_rgba(244,63,94,0.3)]"
           >
             Clear slot
           </button>
           <button
             onClick={onClose}
-            className="rounded-lg border border-slate-300 px-3 py-2 text-sm"
+            className="rounded-lg border border-[#1e293b] px-3 py-2 text-sm text-slate-300 transition hover:border-slate-500"
           >
             Cancel
           </button>
           <button
             onClick={() => patch({ physicianId, isLocked })}
             disabled={saving}
-            className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 hover:shadow-[0_0_14px_rgba(34,211,238,0.5)] disabled:opacity-50"
           >
             {saving ? "Saving…" : "Save"}
           </button>
         </div>
       </div>
     </div>
+  );
+}
+
+export default function SchedulePage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-slate-400">Loading…</div>}>
+      <ScheduleContent />
+    </Suspense>
   );
 }
 

@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { Suspense, useCallback, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { MonthPicker } from "@/components/MonthPicker";
 import { MONTH_NAMES } from "@/lib/shift-style";
 import { fetchMonth } from "@/lib/client";
@@ -9,10 +10,16 @@ import type {
   PhysicianStatDTO,
 } from "@/lib/api-types";
 
-export default function AnalyticsPage() {
+function AnalyticsContent() {
+  const router = useRouter();
+  const search = useSearchParams();
   const now = new Date();
-  const [year, setYear] = useState(now.getUTCFullYear());
-  const [month, setMonth] = useState(now.getUTCMonth() + 1);
+  const [year, setYear] = useState(
+    Number(search.get("year")) || now.getUTCFullYear()
+  );
+  const [month, setMonth] = useState(
+    Number(search.get("month")) || now.getUTCMonth() + 1
+  );
   const [data, setData] = useState<MonthScheduleDTO | null>(null);
 
   const load = useCallback(async () => {
@@ -22,6 +29,12 @@ export default function AnalyticsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const changeMonth = (y: number, m: number) => {
+    setYear(y);
+    setMonth(m);
+    router.replace(`/analytics?year=${y}&month=${m}`);
+  };
 
   const stats = data?.lastRun?.summary?.stats ?? [];
   const fairness = data?.lastRun?.summary?.fairnessScore ?? null;
@@ -33,23 +46,18 @@ export default function AnalyticsPage() {
     <div className="mx-auto max-w-5xl">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Analytics</h1>
-          <p className="text-sm text-slate-500">
+          <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-100 neon-text-cyan">
+            Analytics
+          </h1>
+          <p className="text-sm text-slate-400">
             {MONTH_NAMES[month - 1]} {year} workload & fairness
           </p>
         </div>
-        <MonthPicker
-          year={year}
-          month={month}
-          onChange={(y, m) => {
-            setYear(y);
-            setMonth(m);
-          }}
-        />
+        <MonthPicker year={year} month={month} onChange={changeMonth} />
       </header>
 
       {stats.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-500">
+        <div className="rounded-xl border border-dashed border-[#1e293b] bg-[#0f172a] p-10 text-center text-slate-400">
           No analytics yet. Generate a schedule for this month first.
         </div>
       ) : (
@@ -68,7 +76,7 @@ export default function AnalyticsPage() {
             <Metric
               label="Violations"
               value={warnings.length}
-              accent={warnings.length ? "text-rose-600" : "text-emerald-600"}
+              accent={warnings.length ? "text-rose-400" : "text-emerald-400"}
             />
           </div>
 
@@ -77,7 +85,7 @@ export default function AnalyticsPage() {
               stats={stats}
               value={(s) => s.total}
               max={maxTotal}
-              color="bg-blue-500"
+              color="bg-cyan-400"
               target={(s) => s.desiredShifts}
             />
           </Section>
@@ -87,7 +95,7 @@ export default function AnalyticsPage() {
               stats={stats}
               value={(s) => s.nights}
               max={maxNights}
-              color="bg-teal-500"
+              color="bg-teal-400"
             />
           </Section>
 
@@ -95,7 +103,7 @@ export default function AnalyticsPage() {
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
-                  <tr className="border-b text-left text-xs uppercase text-slate-400">
+                  <tr className="border-b border-[#1e293b] text-left text-xs uppercase text-cyan-400/70">
                     <th className="px-3 py-2">Physician</th>
                     <th className="px-3 py-2">Total</th>
                     <th className="px-3 py-2">Rounding</th>
@@ -108,23 +116,23 @@ export default function AnalyticsPage() {
                 </thead>
                 <tbody>
                   {stats.map((s) => (
-                    <tr key={s.physicianId} className="border-b border-slate-100">
-                      <td className="px-3 py-2 font-medium">{s.fullName}</td>
+                    <tr key={s.physicianId} className="border-b border-[#1e293b] transition hover:bg-cyan-500/5">
+                      <td className="px-3 py-2 font-medium text-slate-200">{s.fullName}</td>
                       <td className="px-3 py-2">{s.total}</td>
                       <td className="px-3 py-2">{s.rounding}</td>
                       <td className="px-3 py-2">{s.admin}</td>
                       <td className="px-3 py-2">{s.nights}</td>
                       <td className="px-3 py-2">{s.weekends}</td>
-                      <td className="px-3 py-2 text-slate-500">
+                      <td className="px-3 py-2 text-slate-400">
                         {s.desiredShifts}
                       </td>
                       <td className="px-3 py-2">
                         {s.belowMin ? (
-                          <span className="text-rose-600">Below min</span>
+                          <span className="text-rose-400">Below min</span>
                         ) : s.aboveMax ? (
-                          <span className="text-amber-600">Above max</span>
+                          <span className="text-amber-300">Above max</span>
                         ) : (
-                          <span className="text-emerald-600">OK</span>
+                          <span className="text-emerald-400">OK</span>
                         )}
                       </td>
                     </tr>
@@ -136,11 +144,11 @@ export default function AnalyticsPage() {
 
           <Section title={`Constraint violations (${warnings.length})`}>
             {warnings.length === 0 ? (
-              <p className="text-sm text-emerald-600">
+              <p className="text-sm text-emerald-400">
                 No constraint violations — full coverage achieved.
               </p>
             ) : (
-              <ul className="max-h-72 space-y-1 overflow-y-auto text-sm text-slate-700">
+              <ul className="max-h-72 space-y-1 overflow-y-auto text-sm text-slate-300">
                 {warnings.map((w, i) => (
                   <li key={i}>• {w}</li>
                 ))}
@@ -153,11 +161,19 @@ export default function AnalyticsPage() {
   );
 }
 
+export default function AnalyticsPage() {
+  return (
+    <Suspense fallback={<div className="p-6 text-sm text-slate-400">Loading…</div>}>
+      <AnalyticsContent />
+    </Suspense>
+  );
+}
+
 function Metric({
   label,
   value,
   hint,
-  accent = "text-slate-900",
+  accent = "text-slate-100",
 }: {
   label: string;
   value: number | string;
@@ -165,8 +181,8 @@ function Metric({
   accent?: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-400">
+    <div className="rounded-xl border border-[#1e293b] bg-[#0f172a] p-4 transition hover:border-cyan-900/40">
+      <div className="text-xs font-medium uppercase tracking-wide text-cyan-400/70">
         {label}
       </div>
       <div className={`mt-1 text-2xl font-bold ${accent}`}>{value}</div>
@@ -183,8 +199,8 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5">
-      <h2 className="mb-3 font-semibold">{title}</h2>
+    <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] p-5">
+      <h2 className="mb-3 font-semibold uppercase tracking-wide text-slate-200">{title}</h2>
       {children}
     </div>
   );
@@ -210,14 +226,14 @@ function BarList({
         return (
           <div key={s.physicianId} className="flex items-center gap-3">
             <div className="w-40 shrink-0 truncate text-sm">{s.fullName}</div>
-            <div className="relative h-5 flex-1 rounded bg-slate-100">
+            <div className="relative h-5 flex-1 rounded bg-[#0a0e1a]">
               <div
-                className={`h-5 rounded ${color}`}
+                className={`h-5 rounded ${color} shadow-[0_0_8px_rgba(34,211,238,0.35)]`}
                 style={{ width: `${(v / max) * 100}%` }}
               />
               {target && (
                 <div
-                  className="absolute top-0 h-5 w-0.5 bg-slate-700"
+                  className="absolute top-0 h-5 w-0.5 bg-fuchsia-400"
                   style={{ left: `${(target(s) / max) * 100}%` }}
                   title={`Target ${target(s)}`}
                 />

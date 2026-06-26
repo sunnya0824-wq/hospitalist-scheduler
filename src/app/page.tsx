@@ -111,8 +111,10 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-5xl">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Dashboard</h1>
-          <p className="text-sm text-slate-500">
+          <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-100 neon-text-cyan">
+            Dashboard
+          </h1>
+          <p className="text-sm text-slate-400">
             {MONTH_NAMES[month - 1]} {year} coverage overview
           </p>
         </div>
@@ -121,7 +123,7 @@ export default function DashboardPage() {
             setYear(y);
             setMonth(m);
           }} />
-          <p className="mt-1 text-xs text-slate-500">
+          <p className="mt-1 text-xs text-slate-400">
             {numDays} days in {MONTH_NAMES[month - 1]} {year} · projected{" "}
             <strong>{projectedAssignments}</strong> assignments (
             {numDays} × {totalPerDay}/day)
@@ -131,22 +133,22 @@ export default function DashboardPage() {
 
       <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatCard label="Total slots" value={total} hint={`${totalPerDay} / day`} />
-        <StatCard label="Filled" value={filled} accent="text-emerald-600" />
+        <StatCard label="Filled" value={filled} accent="text-emerald-400" />
         <StatCard
           label="Coverage gaps"
           value={gaps}
-          accent={gaps > 0 ? "text-rose-600" : "text-emerald-600"}
+          accent={gaps > 0 ? "text-rose-400" : "text-emerald-400"}
         />
         <StatCard
           label="Fairness"
           value={fairness === null ? "—" : `${fairness}`}
-          hint="0–100"
+          hint="Higher is fairer (0–100)"
         />
       </div>
 
-      <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5">
+      <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] transition hover:border-cyan-900/40 p-5">
         <h2 className="font-semibold">Daily coverage</h2>
-        <p className="text-sm text-slate-500">
+        <p className="text-sm text-slate-400">
           Adjust how many of each shift to fill per day for this month.
         </p>
         <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -179,16 +181,16 @@ export default function DashboardPage() {
             onChange={(v) => setCount("nightAdmit2Count", v)}
           />
         </div>
-        <p className="mt-4 text-sm font-medium text-slate-700">
+        <p className="mt-4 text-sm font-medium text-cyan-300">
           Total slots per day = {totalPerDay}
         </p>
       </div>
 
-      <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5">
+      <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] transition hover:border-cyan-900/40 p-5">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
             <h2 className="font-semibold">Generate schedule</h2>
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-slate-400">
               Assigns nights first, then day admitting, then rounders — preserving any
               locked or manually edited slots.
             </p>
@@ -196,47 +198,47 @@ export default function DashboardPage() {
           <button
             onClick={onGenerate}
             disabled={generating}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 hover:shadow-[0_0_14px_rgba(34,211,238,0.5)] disabled:opacity-50"
           >
             {generating ? "Generating…" : "Generate Schedule"}
           </button>
         </div>
         {message && (
-          <p className="mt-3 text-sm text-slate-600">{message}</p>
+          <p className="mt-3 text-sm text-slate-400">{message}</p>
         )}
       </div>
 
-      <div className="mb-6 rounded-xl border border-slate-200 bg-white p-5">
+      <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] transition hover:border-cyan-900/40 p-5">
         <h2 className="mb-3 font-semibold">Exports</h2>
         <div className="flex flex-wrap gap-2">
           <a
             href={exportHref("csv")}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
           >
             Download CSV
           </a>
           <a
             href={exportHref("xlsx")}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
           >
             Download XLSX
           </a>
           <Link
             href={`/schedule/print?year=${year}&month=${month}`}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
           >
             Print view
           </Link>
           <Link
             href="/schedule"
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
           >
             Open schedule
           </Link>
         </div>
       </div>
 
-      <div className="rounded-xl border border-slate-200 bg-white p-5">
+      <div className="rounded-xl border border-[#1e293b] bg-[#0f172a] transition hover:border-cyan-900/40 p-5">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="font-semibold">Shift legend</h2>
           {warnings > 0 && (
@@ -253,7 +255,7 @@ export default function DashboardPage() {
           <p className="mt-3 text-sm text-slate-400">Loading…</p>
         )}
         {!loading && total === 0 && (
-          <p className="mt-3 text-sm text-slate-500">
+          <p className="mt-3 text-sm text-slate-400">
             No schedule yet for this month. Click{" "}
             <strong>Generate Schedule</strong> to build one. Each day needs{" "}
             {totalPerDay} assignments.
@@ -279,9 +281,9 @@ function CountField({
 }) {
   return (
     <label className="block">
-      <span className="text-xs font-medium text-slate-600">
+      <span className="text-xs font-medium text-slate-300">
         {label}{" "}
-        <span className="text-slate-400">
+        <span className="text-slate-500">
           ({min}–{max})
         </span>
       </span>
@@ -295,7 +297,7 @@ function CountField({
           if (!Number.isFinite(n)) return;
           onChange(Math.min(max, Math.max(min, Math.round(n))));
         }}
-        className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1.5 text-sm"
+        className="mt-0.5 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1.5 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
       />
     </label>
   );
@@ -305,7 +307,7 @@ function StatCard({
   label,
   value,
   hint,
-  accent = "text-slate-900",
+  accent = "text-slate-100",
 }: {
   label: string;
   value: number | string;
@@ -313,8 +315,8 @@ function StatCard({
   accent?: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-400">
+    <div className="rounded-xl border border-[#1e293b] bg-[#0f172a] transition hover:border-cyan-900/40 p-4">
+      <div className="text-xs font-medium uppercase tracking-wide text-cyan-400/70">
         {label}
       </div>
       <div className={`mt-1 text-2xl font-bold ${accent}`}>{value}</div>

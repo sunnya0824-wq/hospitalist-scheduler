@@ -29,7 +29,7 @@ export function MonthPicker({
       <button
         type="button"
         onClick={() => step(-1)}
-        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm hover:bg-slate-50"
+        className="rounded-md border border-[#1e293b] bg-[#0f172a] px-2 py-1 text-sm text-slate-200 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.35)]"
         aria-label="Previous month"
       >
         ‹
@@ -37,7 +37,7 @@ export function MonthPicker({
       <select
         value={month}
         onChange={(e) => onChange(year, Number(e.target.value))}
-        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+        className="rounded-md border border-[#1e293b] bg-[#0f172a] px-2 py-1 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
       >
         {MONTH_NAMES.map((name, i) => (
           <option key={name} value={i + 1}>
@@ -49,12 +49,12 @@ export function MonthPicker({
         type="number"
         value={year}
         onChange={(e) => onChange(Number(e.target.value), month)}
-        className="w-20 rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+        className="w-20 rounded-md border border-[#1e293b] bg-[#0f172a] px-2 py-1 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
       />
       <button
         type="button"
         onClick={() => step(1)}
-        className="rounded-md border border-slate-300 bg-white px-2 py-1 text-sm hover:bg-slate-50"
+        className="rounded-md border border-[#1e293b] bg-[#0f172a] px-2 py-1 text-sm text-slate-200 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.35)]"
         aria-label="Next month"
       >
         ›

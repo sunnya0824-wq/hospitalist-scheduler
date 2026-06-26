@@ -6,23 +6,23 @@ export const SHIFT_STYLES: Record<
   { chip: string; dot: string; label: string }
 > = {
   ROUNDER: {
-    chip: "bg-blue-100 text-blue-800 border-blue-300",
-    dot: "bg-blue-500",
+    chip: "bg-[#0e2a33] text-cyan-300 border-cyan-400/60 shadow-[0_0_8px_rgba(34,211,238,0.25)]",
+    dot: "bg-cyan-400",
     label: "Rounder",
   },
   ADMIN: {
-    chip: "bg-amber-100 text-amber-900 border-amber-300",
-    dot: "bg-amber-500",
+    chip: "bg-[#2b220a] text-amber-300 border-amber-400/60 shadow-[0_0_8px_rgba(251,191,36,0.25)]",
+    dot: "bg-amber-400",
     label: "Day Admitting",
   },
   NIGHT_ADMIT_1: {
-    chip: "bg-teal-100 text-teal-900 border-teal-400",
-    dot: "bg-teal-500",
+    chip: "bg-[#0c2b29] text-teal-300 border-teal-400/60 shadow-[0_0_8px_rgba(45,212,191,0.25)]",
+    dot: "bg-teal-400",
     label: "Night Admit 1",
   },
   NIGHT_ADMIT_2: {
-    chip: "bg-fuchsia-100 text-fuchsia-900 border-fuchsia-400",
-    dot: "bg-fuchsia-600",
+    chip: "bg-[#2a1430] text-fuchsia-300 border-fuchsia-400/60 shadow-[0_0_8px_rgba(232,121,249,0.25)]",
+    dot: "bg-fuchsia-400",
     label: "Night Admit 2",
   },
 };

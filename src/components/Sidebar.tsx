@@ -14,16 +14,16 @@ export function Sidebar() {
   const pathname = usePathname();
 
   return (
-    <aside className="no-print sticky top-0 flex h-screen w-16 flex-col border-r border-slate-200 bg-white sm:w-60">
+    <aside className="no-print sticky top-0 flex h-screen w-16 flex-col border-r border-[#1e293b] bg-[#0f172a] sm:w-60">
       <div className="flex items-center gap-2 px-4 py-5">
-        <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-blue-600 font-bold text-white">
+        <div className="flex h-9 w-9 items-center justify-center rounded-lg border border-cyan-400/60 bg-cyan-500/10 font-bold text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.4)]">
           H
         </div>
         <div className="hidden sm:block">
-          <div className="text-sm font-semibold leading-tight">
+          <div className="text-sm font-semibold uppercase tracking-wide leading-tight text-slate-100">
             Hospitalist
           </div>
-          <div className="text-xs text-slate-500">Scheduler</div>
+          <div className="text-xs uppercase tracking-widest text-cyan-400/70">Scheduler</div>
         </div>
       </div>
       <nav className="flex flex-1 flex-col gap-1 px-2">
@@ -36,10 +36,10 @@ export function Sidebar() {
             <Link
               key={item.href}
               href={item.href}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition ${
+              className={`flex items-center gap-3 rounded-lg border-l-2 px-3 py-2 text-sm font-medium transition ${
                 active
-                  ? "bg-blue-50 text-blue-700"
-                  : "text-slate-600 hover:bg-slate-100"
+                  ? "border-cyan-400 bg-cyan-500/10 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.25)]"
+                  : "border-transparent text-slate-400 hover:bg-white/5 hover:text-cyan-200"
               }`}
             >
               <span className="text-base">{item.icon}</span>
@@ -48,7 +48,7 @@ export function Sidebar() {
           );
         })}
       </nav>
-      <div className="hidden px-4 py-4 text-xs text-slate-400 sm:block">
+      <div className="hidden px-4 py-4 text-xs text-slate-500 sm:block">
         Adjustable daily coverage
       </div>
     </aside>

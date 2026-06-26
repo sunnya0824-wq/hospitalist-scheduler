@@ -20,7 +20,7 @@ export function ShiftChip({
 
   if (empty || !name) {
     return (
-      <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-rose-300 bg-rose-50 px-2 py-0.5 text-xs font-medium text-rose-600">
+      <span className="inline-flex items-center gap-1 rounded-md border border-dashed border-rose-500/60 bg-rose-500/10 px-2 py-0.5 text-xs font-medium text-rose-300">
         {label}: unfilled
       </span>
     );
@@ -46,7 +46,7 @@ export function ShiftLegend() {
   return (
     <div className="flex flex-wrap gap-3">
       {types.map((t) => (
-        <span key={t} className="flex items-center gap-1.5 text-xs text-slate-600">
+        <span key={t} className="flex items-center gap-1.5 text-xs text-slate-400">
           <span className={`h-3 w-3 rounded ${SHIFT_STYLES[t].dot}`} />
           {SHIFT_STYLES[t].label}
         </span>

@@ -38,7 +38,7 @@ function PrintContent() {
     )?.physicianName ?? "—";
 
   return (
-    <div className="mx-auto max-w-7xl">
+    <div className="print-light mx-auto min-h-screen max-w-7xl rounded-lg bg-white p-6 text-black">
       <div className="no-print mb-4 flex items-center justify-between">
         <h1 className="text-xl font-bold">
           Print preview — {MONTH_NAMES[month - 1]} {year}

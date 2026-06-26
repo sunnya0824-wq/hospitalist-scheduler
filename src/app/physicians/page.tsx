@@ -105,27 +105,29 @@ export default function PhysiciansPage() {
     <div className="mx-auto max-w-5xl">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold">Physicians</h1>
-          <p className="text-sm text-slate-500">
+          <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-100 neon-text-cyan">
+            Physicians
+          </h1>
+          <p className="text-sm text-slate-400">
             {physicians.length} in roster · manage targets & eligibility
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
           <button
             onClick={() => setEditing({ ...EMPTY })}
-            className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            className="rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 hover:shadow-[0_0_14px_rgba(34,211,238,0.5)]"
           >
             + Add physician
           </button>
           <button
             onClick={seed}
-            className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm hover:bg-slate-50"
+            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
           >
             Seed demo data
           </button>
           <button
             onClick={clearAll}
-            className="rounded-lg border border-rose-300 bg-white px-3 py-2 text-sm text-rose-600 hover:bg-rose-50"
+            className="rounded-lg border border-rose-400/50 bg-[#0f172a] px-3 py-2 text-sm text-rose-300 transition hover:bg-rose-500/10 hover:shadow-[0_0_10px_rgba(244,63,94,0.3)]"
           >
             Clear all data
           </button>
@@ -133,15 +135,15 @@ export default function PhysiciansPage() {
       </header>
 
       {message && (
-        <p className="mb-4 rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600">
+        <p className="mb-4 rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300">
           {message}
         </p>
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+      <div className="overflow-x-auto rounded-xl border border-[#1e293b] bg-[#0f172a]">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b text-left text-xs uppercase text-slate-400">
+            <tr className="border-b border-[#1e293b] text-left text-xs uppercase text-cyan-400/70">
               <th className="px-4 py-2">Name</th>
               <th className="px-4 py-2">Status</th>
               <th className="px-4 py-2">Desired</th>
@@ -155,27 +157,27 @@ export default function PhysiciansPage() {
           </thead>
           <tbody>
             {physicians.map((p) => (
-              <tr key={p.id} className="border-b border-slate-100">
+              <tr key={p.id} className="border-b border-[#1e293b] transition hover:bg-cyan-500/5">
                 <td className="px-4 py-2">
-                  <span className={`font-medium ${!p.active ? "text-slate-400" : ""}`}>
+                  <span className={`font-medium ${!p.active ? "text-slate-500" : "text-slate-200"}`}>
                     {p.fullName}
                   </span>
                 </td>
                 <td className="px-4 py-2">
                   {p.active ? (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-300">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
                       On census
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
-                      <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                    <span className="inline-flex items-center gap-1 rounded-full border border-[#1e293b] bg-slate-500/10 px-2 py-0.5 text-xs font-medium text-slate-400">
+                      <span className="h-1.5 w-1.5 rounded-full bg-slate-500" />
                       Off census
                     </span>
                   )}
                 </td>
                 <td className="px-4 py-2">{p.desiredShifts}</td>
-                <td className="px-4 py-2 text-slate-500">
+                <td className="px-4 py-2 text-slate-400">
                   {p.minShifts}–{p.maxShifts}
                 </td>
                 <td className="px-4 py-2">
@@ -184,8 +186,8 @@ export default function PhysiciansPage() {
                 <td className="px-4 py-2">
                   {p.adminEligible ? `0–${p.maxAdmin}` : "—"}
                 </td>
-                <td className="px-4 py-2 text-slate-500">{p.shiftPreference}</td>
-                <td className="px-4 py-2 text-xs text-slate-500">
+                <td className="px-4 py-2 text-slate-400">{p.shiftPreference}</td>
+                <td className="px-4 py-2 text-xs text-slate-400">
                   {p.unavailableDates.length > 0 &&
                     `${p.unavailableDates.length} off`}
                   {p.preferredDates.length > 0 &&
@@ -194,20 +196,20 @@ export default function PhysiciansPage() {
                 <td className="px-4 py-2 text-right">
                   <Link
                     href={`/physicians/${p.id}?year=${now.getUTCFullYear()}&month=${now.getUTCMonth() + 1}`}
-                    className="mr-2 text-blue-600 hover:underline"
+                    className="mr-2 text-cyan-400 transition hover:text-cyan-300 hover:underline"
                   >
                     View
                   </Link>
                   <button
                     onClick={() => startEdit(p)}
-                    className="mr-2 text-blue-600 hover:underline"
+                    className="mr-2 text-cyan-400 transition hover:text-cyan-300 hover:underline"
                   >
                     Edit
                   </button>
                   <button
                     onClick={() => toggleActive(p)}
-                    className={`mr-2 hover:underline ${
-                      p.active ? "text-amber-600" : "text-emerald-600"
+                    className={`mr-2 transition hover:underline ${
+                      p.active ? "text-amber-300 hover:text-amber-200" : "text-emerald-400 hover:text-emerald-300"
                     }`}
                     title={
                       p.active
@@ -219,7 +221,7 @@ export default function PhysiciansPage() {
                   </button>
                   <button
                     onClick={() => remove(p)}
-                    className="text-rose-600 hover:underline"
+                    className="text-rose-400 transition hover:text-rose-300 hover:underline"
                     title="Permanently delete this physician record"
                   >
                     Delete
@@ -229,7 +231,7 @@ export default function PhysiciansPage() {
             ))}
             {!loading && physicians.length === 0 && (
               <tr>
-                <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={9} className="px-4 py-8 text-center text-slate-400">
                   No physicians yet. Click{" "}
                   <strong>Seed demo data</strong> to load 20 sample physicians.
                 </td>
@@ -298,23 +300,23 @@ function PhysicianForm({
 
   const numField = (key: keyof Draft, label: string) => (
     <label className="block">
-      <span className="text-xs font-medium text-slate-600">{label}</span>
+      <span className="text-xs font-medium text-slate-300">{label}</span>
       <input
         type="number"
         value={(form[key] as number) ?? 0}
         onChange={(e) => set(key, Number(e.target.value))}
-        className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+        className="mt-0.5 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
       />
     </label>
   );
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/30 p-4"
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/70 p-4 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="my-8 w-full max-w-2xl rounded-xl bg-white p-6 shadow-xl"
+        className="my-8 w-full max-w-2xl rounded-xl border border-cyan-400/30 bg-[#0f172a] p-6 shadow-[0_0_30px_rgba(34,211,238,0.25)]"
         onClick={(e) => e.stopPropagation()}
       >
         <h3 className="mb-4 text-lg font-semibold">
@@ -322,11 +324,11 @@ function PhysicianForm({
         </h3>
 
         <label className="mb-4 block">
-          <span className="text-xs font-medium text-slate-600">Full name</span>
+          <span className="text-xs font-medium text-slate-300">Full name</span>
           <input
             value={form.fullName ?? ""}
             onChange={(e) => set("fullName", e.target.value)}
-            className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-2 text-sm"
+            className="mt-0.5 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-2 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
             placeholder="Dr. Jane Doe"
           />
         </label>
@@ -373,7 +375,7 @@ function PhysicianForm({
             <select
               value={form.shiftPreference ?? "NEUTRAL"}
               onChange={(e) => set("shiftPreference", e.target.value)}
-              className="rounded-md border border-slate-300 px-2 py-1 text-sm"
+              className="rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
             >
               <option value="MORE">More</option>
               <option value="NEUTRAL">Neutral</option>
@@ -384,50 +386,50 @@ function PhysicianForm({
 
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block">
-            <span className="text-xs font-medium text-slate-600">
+            <span className="text-xs font-medium text-slate-300">
               Unavailable dates (YYYY-MM-DD, comma separated)
             </span>
             <textarea
               value={form.unavailableText ?? ""}
               onChange={(e) => set("unavailableText", e.target.value)}
               rows={2}
-              className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+              className="mt-0.5 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
               placeholder="2026-07-04, 2026-07-05"
             />
           </label>
           <label className="block">
-            <span className="text-xs font-medium text-slate-600">
+            <span className="text-xs font-medium text-slate-300">
               Preferred dates (YYYY-MM-DD, comma separated)
             </span>
             <textarea
               value={form.preferredText ?? ""}
               onChange={(e) => set("preferredText", e.target.value)}
               rows={2}
-              className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-1 text-sm"
+              className="mt-0.5 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
             />
           </label>
         </div>
 
         <label className="mb-4 block">
-          <span className="text-xs font-medium text-slate-600">Notes</span>
+          <span className="text-xs font-medium text-slate-300">Notes</span>
           <input
             value={form.notes ?? ""}
             onChange={(e) => set("notes", e.target.value)}
-            className="mt-0.5 w-full rounded-md border border-slate-300 px-2 py-2 text-sm"
+            className="mt-0.5 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-2 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
           />
         </label>
 
         <div className="flex justify-end gap-2">
           <button
             onClick={onClose}
-            className="rounded-lg border border-slate-300 px-4 py-2 text-sm"
+            className="rounded-lg border border-[#1e293b] px-4 py-2 text-sm text-slate-300 transition hover:border-slate-500"
           >
             Cancel
           </button>
           <button
             onClick={save}
             disabled={saving || !form.fullName}
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700 disabled:opacity-50"
+            className="rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 hover:shadow-[0_0_14px_rgba(34,211,238,0.5)] disabled:opacity-50"
           >
             {saving ? "Saving…" : "Save"}
           </button>

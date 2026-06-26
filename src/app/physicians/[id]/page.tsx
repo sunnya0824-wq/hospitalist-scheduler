@@ -106,9 +106,9 @@ function PhysicianDetailContent() {
   if (!physician) {
     return (
       <div className="mx-auto max-w-3xl">
-        <p className="rounded-xl border border-slate-200 bg-white p-6 text-slate-600">
+        <p className="rounded-xl border border-[#1e293b] bg-[#0f172a] p-6 text-slate-300">
           Physician not found.{" "}
-          <Link href="/physicians" className="text-blue-600 hover:underline">
+          <Link href="/physicians" className="text-cyan-400 hover:text-cyan-300 hover:underline">
             Back to roster
           </Link>
         </p>
@@ -125,7 +125,7 @@ function PhysicianDetailContent() {
       <div className="mb-2">
         <Link
           href="/physicians"
-          className="text-sm text-blue-600 hover:underline"
+          className="text-sm text-cyan-400 transition hover:text-cyan-300 hover:underline"
         >
           ← Back to roster
         </Link>
@@ -134,12 +134,12 @@ function PhysicianDetailContent() {
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold">{physician.fullName}</h1>
+            <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-100 neon-text-cyan">{physician.fullName}</h1>
             <span
-              className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+              className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
                 physician.active
-                  ? "bg-emerald-100 text-emerald-700"
-                  : "bg-slate-200 text-slate-600"
+                  ? "border-emerald-400/40 bg-emerald-500/10 text-emerald-300"
+                  : "border-[#1e293b] bg-slate-500/10 text-slate-400"
               }`}
             >
               {physician.active ? "Active" : "Inactive"}
@@ -147,12 +147,12 @@ function PhysicianDetailContent() {
           </div>
           <div className="mt-2 flex flex-wrap gap-2">
             {physician.nightEligible && (
-              <span className="rounded-md border border-teal-300 bg-teal-50 px-2 py-0.5 text-xs font-medium text-teal-800">
+              <span className="rounded-md border border-teal-400/50 bg-teal-500/10 px-2 py-0.5 text-xs font-medium text-teal-300">
                 Night eligible
               </span>
             )}
             {physician.adminEligible && (
-              <span className="rounded-md border border-amber-300 bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-900">
+              <span className="rounded-md border border-amber-400/50 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">
                 Day admitting eligible
               </span>
             )}
@@ -169,13 +169,13 @@ function PhysicianDetailContent() {
       </header>
 
       {!scheduleExists ? (
-        <div className="rounded-xl border border-dashed border-slate-300 bg-white p-10 text-center">
-          <p className="mb-4 text-slate-500">
+        <div className="rounded-xl border border-dashed border-[#1e293b] bg-[#0f172a] p-10 text-center">
+          <p className="mb-4 text-slate-400">
             No schedule generated for {MONTH_NAMES[month - 1]} {year}.
           </p>
           <Link
             href="/"
-            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+            className="rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 hover:shadow-[0_0_14px_rgba(34,211,238,0.5)]"
           >
             Go to Dashboard
           </Link>
@@ -193,7 +193,7 @@ function PhysicianDetailContent() {
               label="Vs. desired"
               value={`${counts.total} of ${physician.desiredShifts}`}
               hint={`${desiredDiff >= 0 ? "+" : ""}${desiredDiff}`}
-              accent={desiredDiff < 0 ? "text-amber-600" : "text-emerald-600"}
+              accent={desiredDiff < 0 ? "text-amber-300" : "text-emerald-400"}
             />
             <SummaryCard
               label="Vs. min/max"
@@ -202,7 +202,7 @@ function PhysicianDetailContent() {
                 belowMin ? "below min" : aboveMax ? "above max" : "within range"
               }
               accent={
-                belowMin || aboveMax ? "text-rose-600" : "text-emerald-600"
+                belowMin || aboveMax ? "text-rose-400" : "text-emerald-400"
               }
             />
           </div>
@@ -240,7 +240,7 @@ function CalendarGrid({
   while (cells.length % 7 !== 0) cells.push(null);
 
   return (
-    <div className="mb-6 rounded-xl border border-slate-200 bg-white p-4">
+    <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] p-4">
       <h2 className="mb-3 font-semibold">
         {MONTH_NAMES[month - 1]} {year}
       </h2>
@@ -264,12 +264,12 @@ function CalendarGrid({
               className={`min-h-[60px] rounded-md border p-1 text-left ${
                 a && style
                   ? style.chip
-                  : "border-slate-200 bg-slate-50"
+                  : "border-[#1e293b] bg-[#0a0e1a]"
               }`}
             >
               <div
                 className={`text-[10px] font-semibold ${
-                  off ? "text-slate-400 line-through" : "text-slate-500"
+                  off ? "text-slate-500 line-through" : "text-slate-400"
                 }`}
               >
                 {dayNum}
@@ -281,7 +281,7 @@ function CalendarGrid({
                     : style.label}
                 </div>
               ) : off ? (
-                <div className="mt-1 text-[10px] text-slate-400 line-through">
+                <div className="mt-1 text-[10px] text-slate-500 line-through">
                   off
                 </div>
               ) : null}
@@ -300,17 +300,17 @@ function AssignmentTable({ assignments }: { assignments: AssignmentDTO[] }) {
 
   if (rows.length === 0) {
     return (
-      <div className="rounded-xl border border-slate-200 bg-white p-5 text-sm text-slate-500">
+      <div className="rounded-xl border border-[#1e293b] bg-[#0f172a] p-5 text-sm text-slate-400">
         No assignments for this physician this month.
       </div>
     );
   }
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white">
+    <div className="overflow-x-auto rounded-xl border border-[#1e293b] bg-[#0f172a]">
       <table className="w-full text-sm">
         <thead>
-          <tr className="border-b text-left text-xs uppercase text-slate-400">
+          <tr className="border-b border-[#1e293b] text-left text-xs uppercase text-cyan-400/70">
             <th className="px-4 py-2">Date</th>
             <th className="px-4 py-2">Day</th>
             <th className="px-4 py-2">Shift</th>
@@ -325,9 +325,9 @@ function AssignmentTable({ assignments }: { assignments: AssignmentDTO[] }) {
             if (a.isManual) notes.push("manually edited");
             if (a.isLocked) notes.push("locked");
             return (
-              <tr key={a.id} className="border-b border-slate-100">
-                <td className="px-4 py-2 font-medium">{a.date}</td>
-                <td className="px-4 py-2 text-slate-500">{dow}</td>
+              <tr key={a.id} className="border-b border-[#1e293b] transition hover:bg-cyan-500/5">
+                <td className="px-4 py-2 font-medium text-slate-200">{a.date}</td>
+                <td className="px-4 py-2 text-slate-400">{dow}</td>
                 <td className="px-4 py-2">
                   <ShiftChip
                     shiftType={a.shiftType}
@@ -335,13 +335,13 @@ function AssignmentTable({ assignments }: { assignments: AssignmentDTO[] }) {
                     name={a.physicianName}
                   />
                 </td>
-                <td className="px-4 py-2 text-slate-500">
+                <td className="px-4 py-2 text-slate-400">
                   {shiftHours(a.startTime, a.endTime)}h
-                  <span className="ml-1 text-xs text-slate-400">
+                  <span className="ml-1 text-xs text-slate-500">
                     ({a.startTime}–{a.endTime})
                   </span>
                 </td>
-                <td className="px-4 py-2 text-xs text-slate-500">
+                <td className="px-4 py-2 text-xs text-slate-400">
                   {notes.join(", ") || "—"}
                 </td>
               </tr>
@@ -357,7 +357,7 @@ function SummaryCard({
   label,
   value,
   hint,
-  accent = "text-slate-900",
+  accent = "text-slate-100",
 }: {
   label: string;
   value: number | string;
@@ -365,8 +365,8 @@ function SummaryCard({
   accent?: string;
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-slate-400">
+    <div className="rounded-xl border border-[#1e293b] bg-[#0f172a] p-4 transition hover:border-cyan-900/40">
+      <div className="text-xs font-medium uppercase tracking-wide text-cyan-400/70">
         {label}
       </div>
       <div className={`mt-1 text-2xl font-bold ${accent}`}>{value}</div>
