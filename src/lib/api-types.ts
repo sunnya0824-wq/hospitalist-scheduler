@@ -47,6 +47,25 @@ export interface AssignmentDTO {
   warnings: string[];
 }
 
+export interface UnfilledSlotDTO {
+  date: string;
+  hospital: Hospital;
+  shiftType: ShiftType;
+  rounderIndex: number | null;
+}
+
+export interface GenerateResultDTO {
+  warnings: string[];
+  fairnessScore: number;
+  unfilledSlots: UnfilledSlotDTO[];
+}
+
+export interface TimeOffDTO {
+  id: string;
+  date: string;
+  note: string | null;
+}
+
 export interface PhysicianStatDTO {
   physicianId: string;
   fullName: string;

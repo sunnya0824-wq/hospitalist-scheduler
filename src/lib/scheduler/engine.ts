@@ -5,6 +5,7 @@ import type {
   SchedulerPhysician,
   SchedulerResult,
   ShiftSlot,
+  UnfilledSlot,
 } from "./types";
 import { addDaysISO, isWeekend } from "./dates";
 import { SHIFT_LABELS, isNightType } from "./shifts";
@@ -21,8 +22,11 @@ interface Tally {
   weekends: number;
   /** ISO dates the physician is already working (any shift). */
   workingDates: Set<string>;
-  /** ISO dates the physician must rest (day after a night shift). */
-  restDates: Set<string>;
+  /**
+   * ISO dates the physician is barred from ANY shift because they worked a
+   * night the day(s) before. A night on day D blocks D+1 and D+2.
+   */
+  blockedDates: Set<string>;
 }
 
 function emptyTally(): Tally {
@@ -33,7 +37,7 @@ function emptyTally(): Tally {
     nights: 0,
     weekends: 0,
     workingDates: new Set(),
-    restDates: new Set(),
+    blockedDates: new Set(),
   };
 }
 
@@ -51,8 +55,8 @@ function hardConstraintViolation(
   if (tally.workingDates.has(slot.date)) {
     return "already working that day";
   }
-  // No day shift the day after a night shift (rest day).
-  if (tally.restDates.has(slot.date)) {
+  // No shift in the two days following a night shift (post-night rest).
+  if (tally.blockedDates.has(slot.date)) {
     return "resting after a night shift";
   }
   // A night shift's end date must not collide with existing work.
@@ -62,6 +66,10 @@ function hardConstraintViolation(
   // Respect explicit unavailable dates.
   if (phys.unavailableDates.has(slot.date)) {
     return "unavailable on that date";
+  }
+  // Respect requested time off — a hard block on any shift, any hospital.
+  if (phys.timeOffDates.has(slot.date)) {
+    return "time off requested";
   }
   // Eligibility for specialised shifts.
   if (isNightType(slot.shiftType) && !phys.nightEligible) {
@@ -170,10 +178,11 @@ function applyAssignment(tally: Tally, slot: ShiftSlot): void {
   else if (slot.shiftType === "ADMIN") tally.admin += 1;
   else if (isNightType(slot.shiftType)) {
     tally.nights += 1;
-    // The night ends the next morning, so the end date is blocked and the
-    // following calendar day is a rest day (no day shift allowed).
+    // The night ends the next morning, so the end date is occupied. A night on
+    // day D bars ANY shift on D+1 and D+2 (two-day post-night rest).
     tally.workingDates.add(slot.endDate);
-    tally.restDates.add(slot.endDate);
+    tally.blockedDates.add(addDaysISO(slot.date, 1));
+    tally.blockedDates.add(addDaysISO(slot.date, 2));
   }
 }
 
@@ -207,8 +216,18 @@ export function runScheduler(
   const tallies = new Map<string, Tally>();
   for (const p of active) tallies.set(p.id, emptyTally());
 
+  // Seed post-night rest from nights worked just before the slot window so a
+  // night on the prior month's last days still blocks this month's first days.
+  for (const pn of opts.priorNights ?? []) {
+    const tally = tallies.get(pn.physicianId);
+    if (!tally) continue;
+    tally.blockedDates.add(addDaysISO(pn.date, 1));
+    tally.blockedDates.add(addDaysISO(pn.date, 2));
+  }
+
   const warnings: string[] = [];
   const results: AssignmentResult[] = [];
+  const unfilledSlots: UnfilledSlot[] = [];
 
   // Step 1: lock in pre-assigned slots so they count toward fairness/limits.
   const preassigned = slots.filter((s) => s.physicianId);
@@ -250,6 +269,12 @@ export function runScheduler(
         slot.rounderIndex ? ` ${slot.rounderIndex}` : ""
       } on ${slot.date} — no eligible physician`;
       warnings.push(gap);
+      unfilledSlots.push({
+        date: slot.date,
+        hospital: slot.hospital,
+        shiftType: slot.shiftType,
+        rounderIndex: slot.rounderIndex,
+      });
       results.push({
         ...slot,
         physicianId: null,
@@ -282,7 +307,7 @@ export function runScheduler(
     return (a.rounderIndex ?? 0) - (b.rounderIndex ?? 0);
   });
 
-  return { assignments: results, warnings, stats, fairnessScore };
+  return { assignments: results, warnings, stats, fairnessScore, unfilledSlots };
 }
 
 function buildStats(

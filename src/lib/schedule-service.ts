@@ -7,6 +7,7 @@ import {
   runScheduler,
   toISODate,
   fromISODate,
+  utcDate,
   normalizeCoverage,
   normalizeCommunityCoverage,
   DEFAULT_COVERAGE,
@@ -23,7 +24,7 @@ import {
 /** Load active physicians and shape them for the scheduler engine. */
 export async function loadSchedulerPhysicians(): Promise<SchedulerPhysician[]> {
   const physicians = await prisma.physician.findMany({
-    include: { availability: true },
+    include: { availability: true, timeOffRequests: true },
     orderBy: { fullName: "asc" },
   });
 
@@ -35,6 +36,9 @@ export async function loadSchedulerPhysicians(): Promise<SchedulerPhysician[]> {
       if (a.type === "UNAVAILABLE") unavailableDates.add(iso);
       else preferredDates.add(iso);
     }
+    const timeOffDates = new Set<string>(
+      p.timeOffRequests.map((t) => toISODate(t.date))
+    );
     return {
       id: p.id,
       fullName: p.fullName,
@@ -58,6 +62,7 @@ export async function loadSchedulerPhysicians(): Promise<SchedulerPhysician[]> {
       ]),
       unavailableDates,
       preferredDates,
+      timeOffDates,
     };
   });
 }
@@ -157,7 +162,25 @@ export async function generateSchedule(
     return slot;
   });
 
-  const result = runScheduler(physicians, slots, { allowOverMax });
+  // Locked/manual night shifts on the two days before this month still impose
+  // their two-day post-night rest on this month's first days.
+  const monthStart = utcDate(year, month, 1);
+  const windowStart = new Date(monthStart);
+  windowStart.setUTCDate(windowStart.getUTCDate() - 2);
+  const priorNightRows = await prisma.shiftAssignment.findMany({
+    where: {
+      date: { gte: windowStart, lt: monthStart },
+      shiftType: { in: ["NIGHT_ADMIT_1", "NIGHT_ADMIT_2"] },
+      physicianId: { not: null },
+    },
+    select: { date: true, physicianId: true },
+  });
+  const priorNights = priorNightRows.map((r) => ({
+    physicianId: r.physicianId!,
+    date: toISODate(r.date),
+  }));
+
+  const result = runScheduler(physicians, slots, { allowOverMax, priorNights });
 
   // Persist: wipe old auto-generated rows, then recreate the full grid.
   await prisma.$transaction([

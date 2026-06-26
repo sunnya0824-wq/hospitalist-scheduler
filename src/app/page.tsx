@@ -18,7 +18,7 @@ import {
   type CommunityCoverage,
 } from "@/lib/scheduler/shifts";
 import { fetchMonth, generateMonth } from "@/lib/client";
-import type { MonthScheduleDTO } from "@/lib/api-types";
+import type { MonthScheduleDTO, UnfilledSlotDTO } from "@/lib/api-types";
 import type { Hospital } from "@prisma/client";
 
 const COVERAGE_STORAGE_KEY = "hs.coverage";
@@ -57,6 +57,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
+  const [unfilled, setUnfilled] = useState<UnfilledSlotDTO[]>([]);
   const [coverage, setCoverage] = useState<CoverageSettings>(DEFAULT_COVERAGE);
   const [community, setCommunity] = useState<CommunityCoverage>(
     DEFAULT_COMMUNITY_COVERAGE
@@ -142,7 +143,14 @@ export default function DashboardPage() {
       } catch {
         /* ignore */
       }
-      await generateMonth(year, month, false, settings, communitySettings);
+      const result = await generateMonth(
+        year,
+        month,
+        false,
+        settings,
+        communitySettings
+      );
+      setUnfilled(result.unfilledSlots ?? []);
       await load();
       setMessage("Schedule generated.");
     } catch (e) {
@@ -177,6 +185,7 @@ export default function DashboardPage() {
           <MonthPicker year={year} month={month} onChange={(y, m) => {
             setYear(y);
             setMonth(m);
+            setUnfilled([]);
           }} />
           <p className="mt-1 text-xs text-slate-400">
             {numDays} days in {MONTH_NAMES[month - 1]} {year} · projected{" "}
@@ -185,6 +194,32 @@ export default function DashboardPage() {
           </p>
         </div>
       </header>
+
+      {unfilled.length > 0 && (
+        <div className="mb-6 rounded-xl border border-fuchsia-500/50 bg-fuchsia-500/10 p-4 shadow-[0_0_14px_rgba(217,70,239,0.25)]">
+          <p className="mb-2 font-semibold uppercase tracking-wide text-fuchsia-300">
+            {unfilled.length} slot{unfilled.length === 1 ? "" : "s"} could not be
+            filled — too many physicians off
+          </p>
+          <ul className="max-h-48 space-y-1 overflow-y-auto text-sm text-fuchsia-200/90">
+            {unfilled.map((s, i) => (
+              <li key={i}>
+                • {s.date} —{" "}
+                {s.shiftType === "ROUNDER" && s.rounderIndex
+                  ? `Rounder ${s.rounderIndex}`
+                  : s.shiftType.replace(/_/g, " ")}{" "}
+                · {getHospitalBadge(s.hospital).label}
+              </li>
+            ))}
+          </ul>
+          <Link
+            href={`/schedule?year=${year}&month=${month}`}
+            className="mt-2 inline-block text-sm font-medium text-fuchsia-300 hover:underline"
+          >
+            View on schedule →
+          </Link>
+        </div>
+      )}
 
       <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
         <StatCard

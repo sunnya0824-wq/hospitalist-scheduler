@@ -24,6 +24,8 @@ export interface SchedulerPhysician {
   eligibleHospitals: Set<Hospital>;
   unavailableDates: Set<string>;
   preferredDates: Set<string>;
+  /** ISO dates the physician requested off — a hard block on any shift. */
+  timeOffDates: Set<string>;
 }
 
 /** A single shift slot to be filled (13 per calendar day). */
@@ -66,14 +68,29 @@ export interface PhysicianStats {
   aboveMax: boolean;
 }
 
+/** A slot that no eligible physician could fill (e.g. too many off). */
+export interface UnfilledSlot {
+  date: string;
+  hospital: Hospital;
+  shiftType: ShiftType;
+  rounderIndex: number | null;
+}
+
 export interface SchedulerResult {
   assignments: AssignmentResult[];
   warnings: string[];
   stats: PhysicianStats[];
   fairnessScore: number;
+  unfilledSlots: UnfilledSlot[];
 }
 
 export interface SchedulerOptions {
   /** When true, hard maxShifts cap may be exceeded to fill coverage. */
   allowOverMax?: boolean;
+  /**
+   * Night shifts worked on dates OUTSIDE the slot window (e.g. the last days
+   * of the prior month) whose two-day post-night rest reaches into the window.
+   * Each entry blocks date+1 and date+2 for that physician.
+   */
+  priorNights?: { physicianId: string; date: string }[];
 }

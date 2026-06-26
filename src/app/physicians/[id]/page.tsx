@@ -7,12 +7,25 @@ import { MonthPicker } from "@/components/MonthPicker";
 import { ShiftChip } from "@/components/ShiftChip";
 import { MONTH_NAMES, SHIFT_STYLES, getHospitalBadge } from "@/lib/shift-style";
 import { HOSPITALS, COMMUNITY_HOSPITALS } from "@/lib/scheduler/shifts";
-import { daysInMonth, isWeekend, toISODate, utcDate } from "@/lib/scheduler/dates";
-import { fetchMonth, fetchPhysicians } from "@/lib/client";
+import {
+  addDaysISO,
+  daysInMonth,
+  isWeekend,
+  toISODate,
+  utcDate,
+} from "@/lib/scheduler/dates";
+import {
+  fetchMonth,
+  fetchPhysicians,
+  fetchTimeOff,
+  saveTimeOff,
+  deleteTimeOff,
+} from "@/lib/client";
 import type {
   AssignmentDTO,
   MonthScheduleDTO,
   PhysicianDTO,
+  TimeOffDTO,
 } from "@/lib/api-types";
 import type { ShiftType } from "@prisma/client";
 
@@ -194,6 +207,12 @@ function PhysicianDetailContent() {
           }}
         />
       </header>
+
+      <TimeOffCard
+        physicianId={id}
+        initialYear={year}
+        initialMonth={month}
+      />
 
       {!scheduleExists ? (
         <div className="rounded-xl border border-dashed border-[#1e293b] bg-[#0f172a] p-10 text-center">
@@ -401,6 +420,224 @@ function AssignmentTable({ assignments }: { assignments: AssignmentDTO[] }) {
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function TimeOffCard({
+  physicianId,
+  initialYear,
+  initialMonth,
+}: {
+  physicianId: string;
+  initialYear: number;
+  initialMonth: number;
+}) {
+  const [year, setYear] = useState(initialYear);
+  const [month, setMonth] = useState(initialMonth);
+  const [serverDates, setServerDates] = useState<Set<string>>(new Set());
+  const [draft, setDraft] = useState<Set<string>>(new Set());
+  const [notes, setNotes] = useState<Map<string, string>>(new Map());
+  const [note, setNote] = useState("");
+  const [lastClicked, setLastClicked] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    const rows: TimeOffDTO[] = await fetchTimeOff(physicianId);
+    const set = new Set(rows.map((r) => r.date));
+    setServerDates(set);
+    setDraft(new Set(set));
+    setNotes(new Map(rows.map((r) => [r.date, r.note ?? ""])));
+  }, [physicianId]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const toggle = (iso: string, shift: boolean) => {
+    setMessage(null);
+    setDraft((prev) => {
+      const next = new Set(prev);
+      if (shift && lastClicked) {
+        // Select the inclusive range as time-off (always turns days on).
+        const [a, b] = lastClicked <= iso ? [lastClicked, iso] : [iso, lastClicked];
+        let cursor = a;
+        while (cursor <= b) {
+          next.add(cursor);
+          cursor = addDaysISO(cursor, 1);
+        }
+      } else if (next.has(iso)) {
+        next.delete(iso);
+      } else {
+        next.add(iso);
+      }
+      return next;
+    });
+    setLastClicked(iso);
+  };
+
+  const removeDate = (iso: string) => {
+    setMessage(null);
+    setDraft((prev) => {
+      const next = new Set(prev);
+      next.delete(iso);
+      return next;
+    });
+  };
+
+  const onSave = async () => {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const additions = [...draft].filter((d) => !serverDates.has(d));
+      const removals = [...serverDates].filter((d) => !draft.has(d));
+      if (additions.length) await saveTimeOff(physicianId, additions, note);
+      if (removals.length) await deleteTimeOff(physicianId, removals);
+      setNote("");
+      await load();
+      setMessage(
+        additions.length || removals.length
+          ? `Saved — ${additions.length} added, ${removals.length} removed.`
+          : "No changes to save."
+      );
+    } catch {
+      setMessage("Failed to save time off.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const days = daysInMonth(year, month);
+  const firstDow = utcDate(year, month, 1).getUTCDay();
+  const cells: (string | null)[] = [];
+  for (let i = 0; i < firstDow; i++) cells.push(null);
+  for (let d = 1; d <= days; d++) cells.push(toISODate(utcDate(year, month, d)));
+  while (cells.length % 7 !== 0) cells.push(null);
+
+  const pending = [...draft].sort();
+  const dirty =
+    [...draft].some((d) => !serverDates.has(d)) ||
+    [...serverDates].some((d) => !draft.has(d));
+
+  return (
+    <div className="mb-6 rounded-xl border border-fuchsia-500/30 bg-[#0f172a] p-5 shadow-[0_0_14px_rgba(217,70,239,0.12)]">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h2 className="font-semibold uppercase tracking-wide text-fuchsia-300 neon-text-magenta">
+            Time off
+          </h2>
+          <p className="text-xs text-slate-400">
+            Click a day to toggle. Shift+click to select a range. These days are
+            a hard block — the scheduler will not assign any shift on them.
+          </p>
+        </div>
+        <MonthPicker
+          year={year}
+          month={month}
+          onChange={(y, m) => {
+            setYear(y);
+            setMonth(m);
+          }}
+        />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-[2fr_1fr]">
+        <div>
+          <div className="mb-1 text-sm font-medium text-slate-300">
+            {MONTH_NAMES[month - 1]} {year}
+          </div>
+          <div className="grid grid-cols-7 gap-1 text-center text-xs font-medium text-slate-400">
+            {DAY_NAMES.map((d) => (
+              <div key={d} className="py-1">
+                {d}
+              </div>
+            ))}
+          </div>
+          <div className="grid grid-cols-7 gap-1">
+            {cells.map((iso, i) => {
+              if (!iso)
+                return <div key={`empty-${i}`} className="min-h-[44px]" />;
+              const off = draft.has(iso);
+              const dayNum = Number(iso.slice(8));
+              return (
+                <button
+                  key={iso}
+                  type="button"
+                  onClick={(e) => toggle(iso, e.shiftKey)}
+                  className={`min-h-[44px] rounded-md border p-1 text-left transition ${
+                    off
+                      ? "border-fuchsia-400 bg-fuchsia-500/25 text-fuchsia-100 shadow-[0_0_10px_rgba(217,70,239,0.4)]"
+                      : "border-[#1e293b] bg-[#0a0e1a] text-slate-400 hover:border-fuchsia-500/50"
+                  }`}
+                >
+                  <div className="text-[10px] font-semibold">{dayNum}</div>
+                  {off && (
+                    <div className="mt-0.5 text-[10px] font-medium">off</div>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="flex flex-col">
+          <label className="mb-1 text-sm font-medium text-slate-300">
+            Note for new dates
+          </label>
+          <input
+            type="text"
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="e.g. vacation"
+            className="mb-3 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1.5 text-sm text-slate-200 focus:border-fuchsia-400 focus:outline-none focus:ring-1 focus:ring-fuchsia-400/50"
+          />
+          <button
+            onClick={onSave}
+            disabled={saving || !dirty}
+            className="rounded-lg border border-fuchsia-400/60 bg-fuchsia-500/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-fuchsia-300 transition hover:bg-fuchsia-500/20 hover:shadow-[0_0_14px_rgba(217,70,239,0.5)] disabled:opacity-50"
+          >
+            {saving ? "Saving…" : "Save time off"}
+          </button>
+          {message && (
+            <p className="mt-2 text-xs text-fuchsia-200">{message}</p>
+          )}
+        </div>
+      </div>
+
+      <div className="mt-4 border-t border-[#1e293b] pt-3">
+        <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-400">
+          Pending time off ({pending.length})
+        </div>
+        {pending.length === 0 ? (
+          <p className="text-sm text-slate-500">No time-off dates requested.</p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {pending.map((iso) => {
+              const dow =
+                DAY_NAMES[new Date(iso + "T00:00:00Z").getUTCDay()];
+              const n = notes.get(iso);
+              return (
+                <span
+                  key={iso}
+                  className="inline-flex items-center gap-2 rounded-md border border-fuchsia-400/40 bg-fuchsia-500/10 px-2 py-1 text-xs text-fuchsia-200"
+                >
+                  {dow} {iso}
+                  {n ? <span className="text-fuchsia-300/70">· {n}</span> : null}
+                  <button
+                    type="button"
+                    onClick={() => removeDate(iso)}
+                    className="text-fuchsia-300 hover:text-fuchsia-100"
+                    title="Remove"
+                  >
+                    ✕
+                  </button>
+                </span>
+              );
+            })}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

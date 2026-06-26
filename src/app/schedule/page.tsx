@@ -59,6 +59,7 @@ function ScheduleContent() {
   const [editing, setEditing] = useState<AssignmentDTO | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showUnfilled, setShowUnfilled] = useState(false);
 
   const load = useCallback(async () => {
     const [m, p] = await Promise.all([
@@ -109,6 +110,7 @@ function ScheduleContent() {
   };
 
   const allAssignments = data?.assignments ?? [];
+  const unfilled = allAssignments.filter((a) => !a.physicianId);
   const combined = hospitalTab === "COMBINED";
   const assignments = combined
     ? allAssignments
@@ -144,6 +146,14 @@ function ScheduleContent() {
           </button>
         ))}
       </div>
+
+      {unfilled.length > 0 && (
+        <UnfilledBanner
+          slots={unfilled}
+          open={showUnfilled}
+          onToggle={() => setShowUnfilled((v) => !v)}
+        />
+      )}
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex rounded-lg border border-[#1e293b] bg-[#0f172a] p-0.5">
@@ -365,6 +375,49 @@ function PhysicianView({
           })}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+function UnfilledBanner({
+  slots,
+  open,
+  onToggle,
+}: {
+  slots: AssignmentDTO[];
+  open: boolean;
+  onToggle: () => void;
+}) {
+  const sorted = [...slots].sort((a, b) =>
+    a.date < b.date ? -1 : a.date > b.date ? 1 : 0
+  );
+  return (
+    <div className="mb-4 rounded-xl border border-fuchsia-500/50 bg-fuchsia-500/10 p-4 shadow-[0_0_14px_rgba(217,70,239,0.25)]">
+      <button
+        onClick={onToggle}
+        className="flex w-full items-center justify-between text-left"
+      >
+        <span className="font-semibold uppercase tracking-wide text-fuchsia-300">
+          {slots.length} slot{slots.length === 1 ? "" : "s"} could not be filled
+          — too many physicians off
+        </span>
+        <span className="text-sm text-fuchsia-300">
+          {open ? "Hide ▲" : "View ▼"}
+        </span>
+      </button>
+      {open && (
+        <ul className="mt-3 max-h-64 space-y-1 overflow-y-auto text-sm text-fuchsia-200/90">
+          {sorted.map((s) => (
+            <li key={s.id}>
+              • {formatDate(s.date)} —{" "}
+              {s.shiftType === "ROUNDER" && s.rounderIndex
+                ? `Rounder ${s.rounderIndex}`
+                : s.shiftType.replace(/_/g, " ")}{" "}
+              · {getHospitalBadge(s.hospital).label}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
