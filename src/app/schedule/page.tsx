@@ -5,6 +5,13 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MonthPicker } from "@/components/MonthPicker";
 import { ShiftChip, ShiftLegend } from "@/components/ShiftChip";
+import { SECONDARY_BTN } from "@/components/Card";
+import {
+  CalendarIcon,
+  CopyIcon,
+  DownloadIcon,
+  PrinterIcon,
+} from "@/components/icons";
 import { MONTH_NAMES, getHospitalBadge } from "@/lib/shift-style";
 import { scheduleColumns, HOSPITALS } from "@/lib/scheduler/shifts";
 import { addDaysISO, isWeekend } from "@/lib/scheduler/dates";
@@ -200,10 +207,8 @@ function ScheduleContent() {
     <div className="mx-auto max-w-6xl">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-100 neon-text-cyan">
-            Schedule
-          </h1>
-          <p className="text-sm text-slate-400">
+          <h1 className="page-title">Schedule</h1>
+          <p className="mt-1 text-sm text-slate-400">
             {MONTH_NAMES[month - 1]} {year}
           </p>
         </div>
@@ -307,28 +312,29 @@ function ScheduleContent() {
           >
             {busy ? "Regenerating…" : "Regenerate"}
           </button>
-          <button
-            onClick={copyTSV}
-            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
-          >
+          <button onClick={copyTSV} className={SECONDARY_BTN}>
+            <CopyIcon className="h-3.5 w-3.5" />
             {copied ? "Copied!" : "Copy (TSV)"}
           </button>
           <a
             href={`/api/export/csv?year=${year}&month=${month}`}
-            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
+            className={SECONDARY_BTN}
           >
+            <DownloadIcon className="h-3.5 w-3.5" />
             CSV
           </a>
           <a
             href={`/api/export/xlsx?year=${year}&month=${month}`}
-            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
+            className={SECONDARY_BTN}
           >
+            <DownloadIcon className="h-3.5 w-3.5" />
             XLSX
           </a>
           <Link
             href={`/schedule/print?year=${year}&month=${month}`}
-            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
+            className={SECONDARY_BTN}
           >
+            <PrinterIcon className="h-3.5 w-3.5" />
             Print
           </Link>
         </div>
@@ -339,19 +345,37 @@ function ScheduleContent() {
       </div>
 
       {assignments.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-[#1e293b] bg-[#0f172a] p-10 text-center text-slate-400">
-          {allAssignments.length === 0 ? (
-            <>
-              No schedule for this month yet. Click <strong>Regenerate</strong>{" "}
-              to build one.
-            </>
-          ) : (
-            <>
-              No {hospitalTabLabel(hospitalTab)} shifts this month. Set its
-              rounder count on the Dashboard, then regenerate.
-            </>
-          )}
-        </div>
+        allAssignments.length === 0 ? (
+          <div className="rounded-xl border border-dashed border-cyan-900/40 bg-slate-900/40 p-12 text-center">
+            <CalendarIcon
+              className="mx-auto mb-5 h-20 w-20 text-cyan-400/70"
+              strokeWidth={1}
+            />
+            <h2 className="text-sm font-semibold uppercase tracking-[0.25em] text-cyan-300">
+              No schedule for {MONTH_NAMES[month - 1]} {year}
+            </h2>
+            <p className="mx-auto mt-2 max-w-md text-sm text-slate-400">
+              Set your coverage on the Dashboard, then generate.
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              <button
+                onClick={regenerate}
+                disabled={busy}
+                className="rounded-lg border border-cyan-400 bg-cyan-500/15 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-200 transition hover:bg-cyan-500/25 hover:shadow-[0_0_18px_rgba(34,211,238,0.55)] disabled:opacity-50"
+              >
+                {busy ? "Generating…" : "Generate now"}
+              </button>
+              <Link href="/" className={SECONDARY_BTN}>
+                ← Go to dashboard
+              </Link>
+            </div>
+          </div>
+        ) : (
+          <div className="rounded-xl border border-dashed border-[#1e293b] bg-slate-900/40 p-10 text-center text-slate-400">
+            No {hospitalTabLabel(hospitalTab)} shifts this month. Set its rounder
+            count on the Dashboard, then regenerate.
+          </div>
+        )
       ) : view === "day" ? (
         <DayView
           assignments={assignments}

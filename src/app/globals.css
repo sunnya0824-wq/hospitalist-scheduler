@@ -21,6 +21,42 @@ body {
   background-attachment: fixed;
 }
 
+/* Blade Runner ambient lighting — faint off-center glows behind all content. */
+@media not print {
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    z-index: -1;
+    pointer-events: none;
+    background-image:
+      radial-gradient(circle at 78% 22%, rgba(34, 211, 238, 0.04), transparent 45%),
+      radial-gradient(circle at 22% 82%, rgba(232, 121, 249, 0.04), transparent 45%);
+  }
+}
+
+/* Shared page H1 treatment. */
+.page-title {
+  text-transform: uppercase;
+  letter-spacing: 0.25em;
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+  font-weight: 700;
+  color: #f1f5f9;
+  text-shadow: 0 0 20px rgba(34, 211, 238, 0.25);
+}
+
+/* Consistent focus treatment for form controls. */
+@media not print {
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible {
+    outline: none;
+    border-color: #22d3ee;
+    box-shadow: 0 0 0 3px rgba(34, 211, 238, 0.3), 0 0 10px rgba(34, 211, 238, 0.2);
+  }
+}
+
 @layer components {
   /* Reusable neon glow effects */
   .neon-glow-cyan {

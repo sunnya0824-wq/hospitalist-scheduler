@@ -73,19 +73,42 @@ function AnalyticsContent() {
     <div className="mx-auto max-w-5xl">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-100 neon-text-cyan">
-            Analytics
-          </h1>
-          <p className="text-sm text-slate-400">
-            {MONTH_NAMES[month - 1]} {year} workload & fairness
+          <h1 className="page-title">Analytics</h1>
+          <p className="mt-1 text-sm text-slate-400">
+            {MONTH_NAMES[month - 1]} {year} workload &amp; fairness
           </p>
         </div>
         <MonthPicker year={year} month={month} onChange={changeMonth} />
       </header>
 
       {stats.length === 0 ? (
-        <div className="rounded-xl border border-dashed border-[#1e293b] bg-[#0f172a] p-10 text-center text-slate-400">
-          No analytics yet. Generate a schedule for this month first.
+        <div className="rounded-xl border border-dashed border-cyan-900/40 bg-slate-900/40 p-12 text-center">
+          <svg
+            width="120"
+            height="72"
+            viewBox="0 0 120 72"
+            className="mx-auto mb-6"
+            aria-hidden
+          >
+            <rect x="14" y="40" width="16" height="28" rx="2" fill="#22d3ee" opacity="0.7" />
+            <rect x="38" y="26" width="16" height="42" rx="2" fill="#e879f9" opacity="0.7" />
+            <rect x="62" y="14" width="16" height="54" rx="2" fill="#22d3ee" opacity="0.55" />
+            <rect x="86" y="32" width="16" height="36" rx="2" fill="#fbbf24" opacity="0.7" />
+            <line x1="8" y1="68" x2="112" y2="68" stroke="#1e293b" strokeWidth="2" />
+          </svg>
+          <h2 className="text-sm font-semibold uppercase tracking-[0.25em] text-cyan-300">
+            No analytics yet
+          </h2>
+          <p className="mx-auto mt-2 max-w-md text-sm text-slate-400">
+            Generate a schedule for this month to see fairness, coverage, and
+            workload analytics.
+          </p>
+          <a
+            href="/"
+            className="mt-6 inline-flex items-center gap-1.5 rounded-lg border border-cyan-400 bg-cyan-500/15 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-200 transition hover:bg-cyan-500/25 hover:shadow-[0_0_18px_rgba(34,211,238,0.55)]"
+          >
+            Go to dashboard →
+          </a>
         </div>
       ) : (
         <>
@@ -345,7 +368,7 @@ function Metric({
       <div className="text-xs font-medium uppercase tracking-wide text-cyan-400/70">
         {label}
       </div>
-      <div className={`mt-1 text-2xl font-bold ${accent}`}>{value}</div>
+      <div className={`mt-1 text-2xl font-bold tabular-nums ${accent}`}>{value}</div>
       {hint && <div className="text-xs text-slate-400">{hint}</div>}
     </div>
   );

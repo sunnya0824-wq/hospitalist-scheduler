@@ -121,11 +121,9 @@ export default function PhysiciansPage() {
     <div className="mx-auto max-w-5xl">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-100 neon-text-cyan">
-            Physicians
-          </h1>
-          <p className="text-sm text-slate-400">
-            {physicians.length} in roster · manage targets & eligibility
+          <h1 className="page-title">Physicians</h1>
+          <p className="mt-1 text-sm text-slate-400">
+            {physicians.length} in roster · manage targets &amp; eligibility
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -156,10 +154,10 @@ export default function PhysiciansPage() {
         </p>
       )}
 
-      <div className="overflow-x-auto rounded-xl border border-[#1e293b] bg-[#0f172a]">
+      <div className="overflow-x-auto rounded-xl border border-slate-800/80 bg-slate-900/40 backdrop-blur-sm shadow-[0_0_0_1px_rgba(34,211,238,0.04),0_8px_24px_rgba(0,0,0,0.4)]">
         <table className="w-full text-sm">
           <thead>
-            <tr className="border-b border-[#1e293b] text-left text-xs uppercase text-cyan-400/70">
+            <tr className="border-b border-slate-800 text-left text-[10px] uppercase tracking-[0.2em] text-slate-500">
               <th className="px-4 py-2">Name</th>
               <th className="px-4 py-2">Status</th>
               <th className="px-4 py-2">Desired</th>
@@ -173,7 +171,10 @@ export default function PhysiciansPage() {
           </thead>
           <tbody>
             {physicians.map((p) => (
-              <tr key={p.id} className="border-b border-[#1e293b] transition hover:bg-cyan-500/5">
+              <tr
+                key={p.id}
+                className="border-b border-slate-800/60 odd:bg-slate-900/30 even:bg-slate-900/10 transition hover:bg-cyan-950/30 hover:shadow-[inset_0_0_0_1px_rgba(34,211,238,0.25)]"
+              >
                 <td className="px-4 py-2">
                   <span className={`font-medium ${!p.active ? "text-slate-500" : "text-slate-200"}`}>
                     {p.fullName}
@@ -197,25 +198,25 @@ export default function PhysiciansPage() {
                 </td>
                 <td className="px-4 py-2">
                   {p.active ? (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-emerald-400/40 bg-emerald-500/10 px-2 py-0.5 text-xs font-medium text-emerald-300">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-[0_0_6px_rgba(52,211,153,0.8)]" />
+                    <span className="inline-flex items-center gap-1 rounded-full border border-cyan-400/60 bg-cyan-950/40 px-2 py-0.5 text-xs font-medium text-cyan-300 shadow-[0_0_8px_rgba(34,211,238,0.25)]">
+                      <span className="h-1.5 w-1.5 rounded-full bg-cyan-400 shadow-[0_0_6px_rgba(34,211,238,0.8)]" />
                       On census
                     </span>
                   ) : (
-                    <span className="inline-flex items-center gap-1 rounded-full border border-[#1e293b] bg-slate-500/10 px-2 py-0.5 text-xs font-medium text-slate-400">
-                      <span className="h-1.5 w-1.5 rounded-full bg-slate-500" />
+                    <span className="inline-flex items-center gap-1 rounded-full border border-fuchsia-700/40 bg-slate-900/40 px-2 py-0.5 text-xs font-medium text-slate-500">
+                      <span className="h-1.5 w-1.5 rounded-full bg-fuchsia-700/60" />
                       Off census
                     </span>
                   )}
                 </td>
-                <td className="px-4 py-2">{p.desiredShifts}</td>
-                <td className="px-4 py-2 text-slate-400">
+                <td className="px-4 py-2 tabular-nums">{p.desiredShifts}</td>
+                <td className="px-4 py-2 tabular-nums text-slate-400">
                   {p.minShifts}–{p.maxShifts}
                 </td>
-                <td className="px-4 py-2">
+                <td className="px-4 py-2 tabular-nums">
                   {p.nightEligible ? `${p.minNights}–${p.maxNights}` : "—"}
                 </td>
-                <td className="px-4 py-2">
+                <td className="px-4 py-2 tabular-nums">
                   {p.adminEligible ? `0–${p.maxAdmin}` : "—"}
                 </td>
                 <td className="px-4 py-2 text-slate-400">{p.shiftPreference}</td>
@@ -225,7 +226,7 @@ export default function PhysiciansPage() {
                   {p.preferredDates.length > 0 &&
                     ` · ${p.preferredDates.length} pref`}
                 </td>
-                <td className="px-4 py-2 text-right">
+                <td className="whitespace-nowrap px-4 py-2 text-right">
                   <Link
                     href={`/physicians/${p.id}?year=${now.getUTCFullYear()}&month=${now.getUTCMonth() + 1}`}
                     className="mr-2 text-cyan-400 transition hover:text-cyan-300 hover:underline"

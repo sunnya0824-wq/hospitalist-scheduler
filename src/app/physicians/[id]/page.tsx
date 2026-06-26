@@ -157,7 +157,7 @@ function PhysicianDetailContent() {
       <header className="mb-6 flex flex-wrap items-start justify-between gap-4">
         <div>
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-100 neon-text-cyan">{physician.fullName}</h1>
+            <h1 className="page-title">{physician.fullName}</h1>
             <span
               className={`rounded-full border px-2 py-0.5 text-xs font-medium ${
                 physician.active
@@ -218,6 +218,8 @@ function PhysicianDetailContent() {
           </a>
         </div>
       </header>
+
+      <div className="my-8 h-px bg-gradient-to-r from-transparent via-cyan-900/40 to-transparent" />
 
       <WorkloadCard physician={physician} onSaved={load} />
 
@@ -699,13 +701,12 @@ function WorkloadCard({
 
   return (
     <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] p-5">
-      <h2 className="mb-1 font-semibold uppercase tracking-wide text-slate-200">
+      <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300">
+        <span className="inline-block h-2 w-2 bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.6)]" />
         Workload
       </h2>
       <p className="mb-3 text-xs text-slate-400">
-        FTE scales the auto-computed monthly target. Leave the target blank to
-        derive it from the FTE-weighted average. Max consecutive days is a hard
-        cap the scheduler never exceeds.
+        Fine-tune how many shifts this physician should work this month.
       </p>
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
         <label className="block">
@@ -771,6 +772,16 @@ function WorkloadCard({
         </button>
         {message && <span className="text-xs text-slate-400">{message}</span>}
       </div>
+      <details className="mt-4 text-xs text-slate-500">
+        <summary className="cursor-pointer text-slate-400 hover:text-cyan-300">
+          Why these settings?
+        </summary>
+        <p className="mt-2 leading-relaxed">
+          FTE scales the auto-computed monthly target. Leave the target blank to
+          derive it from the FTE-weighted average. Max consecutive days is a hard
+          cap the scheduler never exceeds.
+        </p>
+      </details>
     </div>
   );
 }
@@ -812,7 +823,8 @@ function CalendarFeedCard({ physician }: { physician: PhysicianDTO }) {
 
   return (
     <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] p-5">
-      <h2 className="mb-1 font-semibold uppercase tracking-wide text-slate-200">
+      <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300">
+        <span className="inline-block h-2 w-2 bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.6)]" />
         Calendar feed
       </h2>
       <p className="mb-3 text-xs text-slate-400">
@@ -821,12 +833,9 @@ function CalendarFeedCard({ physician }: { physician: PhysicianDTO }) {
         hospitals.
       </p>
       <div className="flex flex-wrap items-center gap-2">
-        <input
-          readOnly
-          value={url}
-          onFocus={(e) => e.currentTarget.select()}
-          className="min-w-0 flex-1 rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1.5 text-xs text-slate-300 focus:border-cyan-400 focus:outline-none"
-        />
+        <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1.5 font-mono text-xs text-slate-300">
+          {url}
+        </code>
         <button
           onClick={copy}
           className="rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20"
@@ -883,7 +892,7 @@ function SummaryCard({
       <div className="text-xs font-medium uppercase tracking-wide text-cyan-400/70">
         {label}
       </div>
-      <div className={`mt-1 text-2xl font-bold ${accent}`}>{value}</div>
+      <div className={`mt-1 text-2xl font-bold tabular-nums ${accent}`}>{value}</div>
       {hint && <div className="text-xs text-slate-400">{hint}</div>}
     </div>
   );

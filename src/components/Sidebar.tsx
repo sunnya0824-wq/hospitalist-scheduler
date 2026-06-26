@@ -2,12 +2,23 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import type { SVGProps } from "react";
+import {
+  GridIcon,
+  UsersIcon,
+  CalendarIcon,
+  BarChartIcon,
+} from "@/components/icons";
 
-const NAV = [
-  { href: "/", label: "Dashboard", icon: "▦" },
-  { href: "/physicians", label: "Physicians", icon: "✚" },
-  { href: "/schedule", label: "Schedule", icon: "▤" },
-  { href: "/analytics", label: "Analytics", icon: "◷" },
+const NAV: {
+  href: string;
+  label: string;
+  Icon: (props: SVGProps<SVGSVGElement>) => JSX.Element;
+}[] = [
+  { href: "/", label: "Dashboard", Icon: GridIcon },
+  { href: "/physicians", label: "Physicians", Icon: UsersIcon },
+  { href: "/schedule", label: "Schedule", Icon: CalendarIcon },
+  { href: "/analytics", label: "Analytics", Icon: BarChartIcon },
 ];
 
 export function Sidebar() {
@@ -32,17 +43,18 @@ export function Sidebar() {
             item.href === "/"
               ? pathname === "/"
               : pathname.startsWith(item.href);
+          const Icon = item.Icon;
           return (
             <Link
               key={item.href}
               href={item.href}
               className={`flex items-center gap-3 rounded-lg border-l-2 px-3 py-2 text-sm font-medium transition ${
                 active
-                  ? "border-cyan-400 bg-cyan-500/10 text-cyan-300 shadow-[0_0_12px_rgba(34,211,238,0.25)]"
-                  : "border-transparent text-slate-400 hover:bg-white/5 hover:text-cyan-200"
+                  ? "border-cyan-400 bg-cyan-400/10 text-cyan-300 shadow-[inset_0_0_20px_rgba(34,211,238,0.1)]"
+                  : "border-transparent text-slate-400 hover:border-cyan-900 hover:bg-slate-800/40 hover:text-cyan-300"
               }`}
             >
-              <span className="text-base">{item.icon}</span>
+              <Icon className="h-4 w-4 shrink-0" />
               <span className="hidden sm:inline">{item.label}</span>
             </Link>
           );

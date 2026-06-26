@@ -1,9 +1,19 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import type { SVGProps } from "react";
 import Link from "next/link";
 import { MonthPicker } from "@/components/MonthPicker";
 import { ShiftLegend } from "@/components/ShiftChip";
+import { Card, CardHeader, SECONDARY_BTN } from "@/components/Card";
+import {
+  GridIcon,
+  CheckIcon,
+  AlertTriangleIcon,
+  ScalesIcon,
+  DownloadIcon,
+  PrinterIcon,
+} from "@/components/icons";
 import { MONTH_NAMES, getHospitalBadge } from "@/lib/shift-style";
 import { daysInMonth } from "@/lib/scheduler/dates";
 import {
@@ -174,10 +184,8 @@ export default function DashboardPage() {
     <div className="mx-auto max-w-5xl">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold uppercase tracking-wide text-slate-100 neon-text-cyan">
-            Dashboard
-          </h1>
-          <p className="text-sm text-slate-400">
+          <h1 className="page-title">Dashboard</h1>
+          <p className="mt-1 text-sm text-slate-400">
             {MONTH_NAMES[month - 1]} {year} coverage overview
           </p>
         </div>
@@ -225,27 +233,40 @@ export default function DashboardPage() {
         <StatCard
           label="Total slots"
           value={total}
-          hint={`${totalPerDay + communityPerDay} / day`}
+          sub={`${totalPerDay + communityPerDay} / day · across all hospitals`}
+          accent="cyan"
+          Icon={GridIcon}
         />
-        <StatCard label="Filled" value={filled} accent="text-emerald-400" />
+        <StatCard
+          label="Filled"
+          value={filled}
+          sub={total > 0 ? `of ${total} expected` : undefined}
+          accent="green"
+          Icon={CheckIcon}
+        />
         <StatCard
           label="Coverage gaps"
           value={gaps}
-          accent={gaps > 0 ? "text-rose-400" : "text-emerald-400"}
+          sub={gaps > 0 ? "slots need a physician" : "fully covered"}
+          accent={gaps > 0 ? "magenta" : "green"}
+          Icon={AlertTriangleIcon}
         />
         <StatCard
           label="Fairness"
-          value={fairness === null ? "—" : `${fairness}`}
-          hint="Higher is fairer (0–100)"
+          value={fairness === null ? "—" : fairness}
+          sub="0–100, higher is fairer"
+          accent="amber"
+          Icon={ScalesIcon}
+          bar={fairness}
         />
       </div>
 
-      <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] transition hover:border-cyan-900/40 p-5">
-        <h2 className="font-semibold">Daily coverage</h2>
-        <p className="text-sm text-slate-400">
-          Adjust how many of each shift to fill per day for this month.
-        </p>
-        <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <Card className="mb-6">
+        <CardHeader
+          title="Daily coverage"
+          subtitle="Adjust how many of each shift to fill per day for this month."
+        />
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
           <CountField
             label="Rounders"
             value={coverage.rounderCount}
@@ -275,19 +296,18 @@ export default function DashboardPage() {
             onChange={(v) => setCount("nightAdmit2Count", v)}
           />
         </div>
-        <p className="mt-4 text-sm font-medium text-cyan-300">
-          Total slots per day = {totalPerDay}
+        <p className="mt-4 text-sm font-medium text-slate-400">
+          Total slots per day ={" "}
+          <span className="tabular-nums text-slate-200">{totalPerDay}</span>
         </p>
-      </div>
+      </Card>
 
-      <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] transition hover:border-cyan-900/40 p-5">
-        <h2 className="font-semibold">Community hospitals</h2>
-        <p className="text-sm text-slate-400">
-          Rounding-only locations. Set how many rounders to fill per day at each
-          community hospital (0 disables it). Only physicians flagged eligible
-          are scheduled there.
-        </p>
-        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <Card className="mb-6">
+        <CardHeader
+          title="Community hospitals"
+          subtitle="Rounding-only locations. Set how many rounders to fill per day at each community hospital (0 disables it). Only physicians flagged eligible are scheduled there."
+        />
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
           {COMMUNITY_HOSPITALS.map((h) => {
             const badge = getHospitalBadge(h as Hospital);
             return (
@@ -302,16 +322,20 @@ export default function DashboardPage() {
             );
           })}
         </div>
-        <p className="mt-4 text-sm font-medium text-cyan-300">
-          Community rounders per day = {communityPerDay}
+        <p className="mt-4 text-sm font-medium text-slate-400">
+          Community rounders per day ={" "}
+          <span className="tabular-nums text-slate-200">{communityPerDay}</span>
         </p>
-      </div>
+      </Card>
 
-      <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] transition hover:border-cyan-900/40 p-5">
+      <Card className="mb-6">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div>
-            <h2 className="font-semibold">Generate schedule</h2>
-            <p className="text-sm text-slate-400">
+            <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300">
+              <span className="inline-block h-2 w-2 bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.6)]" />
+              Generate schedule
+            </h2>
+            <p className="mt-1 text-xs text-slate-500">
               Assigns nights first, then day admitting, then rounders — preserving any
               locked or manually edited slots.
             </p>
@@ -319,7 +343,7 @@ export default function DashboardPage() {
           <button
             onClick={onGenerate}
             disabled={generating}
-            className="rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 hover:shadow-[0_0_14px_rgba(34,211,238,0.5)] disabled:opacity-50"
+            className="rounded-lg border border-cyan-400 bg-cyan-500/15 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-200 transition hover:bg-cyan-500/25 hover:shadow-[0_0_18px_rgba(34,211,238,0.55)] disabled:opacity-50"
           >
             {generating ? "Generating…" : "Generate Schedule"}
           </button>
@@ -327,45 +351,43 @@ export default function DashboardPage() {
         {message && (
           <p className="mt-3 text-sm text-slate-400">{message}</p>
         )}
-      </div>
+      </Card>
 
-      <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] transition hover:border-cyan-900/40 p-5">
-        <h2 className="mb-3 font-semibold">Exports</h2>
+      <Card className="mb-6">
+        <CardHeader title="Exports" />
         <div className="flex flex-wrap gap-2">
-          <a
-            href={exportHref("csv")}
-            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
-          >
-            Download CSV
+          <a href={exportHref("csv")} className={SECONDARY_BTN}>
+            <DownloadIcon className="h-3.5 w-3.5" />
+            CSV
           </a>
-          <a
-            href={exportHref("xlsx")}
-            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
-          >
-            Download XLSX
+          <a href={exportHref("xlsx")} className={SECONDARY_BTN}>
+            <DownloadIcon className="h-3.5 w-3.5" />
+            XLSX
           </a>
           <Link
             href={`/schedule/print?year=${year}&month=${month}`}
-            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
+            className={SECONDARY_BTN}
           >
+            <PrinterIcon className="h-3.5 w-3.5" />
             Print view
           </Link>
-          <Link
-            href="/schedule"
-            className="rounded-lg border border-[#1e293b] bg-[#0f172a] px-3 py-2 text-sm text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.3)]"
-          >
+          <Link href="/schedule" className={SECONDARY_BTN}>
+            <GridIcon className="h-3.5 w-3.5" />
             Open schedule
           </Link>
         </div>
-      </div>
+      </Card>
 
-      <div className="rounded-xl border border-[#1e293b] bg-[#0f172a] transition hover:border-cyan-900/40 p-5">
+      <Card hover>
         <div className="mb-3 flex items-center justify-between">
-          <h2 className="font-semibold">Shift legend</h2>
+          <h2 className="flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300">
+            <span className="inline-block h-2 w-2 bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.6)]" />
+            Shift legend
+          </h2>
           {warnings > 0 && (
             <Link
               href="/analytics"
-              className="text-sm font-medium text-rose-600 hover:underline"
+              className="text-sm font-medium text-fuchsia-300 hover:underline"
             >
               {warnings} warning{warnings === 1 ? "" : "s"} →
             </Link>
@@ -382,7 +404,7 @@ export default function DashboardPage() {
             {totalPerDay} assignments.
           </p>
         )}
-      </div>
+      </Card>
     </div>
   );
 }
@@ -424,24 +446,67 @@ function CountField({
   );
 }
 
+type Accent = "cyan" | "green" | "magenta" | "amber";
+
+const ACCENT: Record<Accent, { text: string; border: string; bar: string }> = {
+  cyan: {
+    text: "text-cyan-300",
+    border: "border-t-cyan-400/60",
+    bar: "from-cyan-400 via-fuchsia-400 to-cyan-400",
+  },
+  green: {
+    text: "text-emerald-400",
+    border: "border-t-emerald-400/60",
+    bar: "from-emerald-400 to-emerald-300",
+  },
+  magenta: {
+    text: "text-fuchsia-400",
+    border: "border-t-fuchsia-400/60",
+    bar: "from-fuchsia-400 to-fuchsia-300",
+  },
+  amber: {
+    text: "text-amber-300",
+    border: "border-t-amber-400/60",
+    bar: "from-cyan-400 via-fuchsia-400 to-cyan-400",
+  },
+};
+
 function StatCard({
   label,
   value,
-  hint,
-  accent = "text-slate-100",
+  sub,
+  accent,
+  Icon,
+  bar,
 }: {
   label: string;
   value: number | string;
-  hint?: string;
-  accent?: string;
+  sub?: string;
+  accent: Accent;
+  Icon: (props: SVGProps<SVGSVGElement>) => JSX.Element;
+  bar?: number | null;
 }) {
+  const a = ACCENT[accent];
   return (
-    <div className="rounded-xl border border-[#1e293b] bg-[#0f172a] transition hover:border-cyan-900/40 p-4">
-      <div className="text-xs font-medium uppercase tracking-wide text-cyan-400/70">
+    <div
+      className={`rounded-xl border border-t-2 border-slate-800/80 ${a.border} bg-slate-900/40 backdrop-blur-sm p-4 shadow-[0_0_0_1px_rgba(34,211,238,0.04),0_8px_24px_rgba(0,0,0,0.4)]`}
+    >
+      <div className="flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-slate-400">
+        <Icon className={`h-3.5 w-3.5 ${a.text}`} />
         {label}
       </div>
-      <div className={`mt-1 text-2xl font-bold ${accent}`}>{value}</div>
-      {hint && <div className="text-xs text-slate-400">{hint}</div>}
+      <div className={`mt-1 text-5xl font-bold tabular-nums ${a.text}`}>
+        {value}
+      </div>
+      {bar !== undefined && (
+        <div className="mt-2 h-2.5 w-full rounded-full border border-cyan-900/40 bg-slate-800">
+          <div
+            className={`h-full rounded-full bg-gradient-to-r ${a.bar} shadow-[0_0_10px_rgba(34,211,238,0.5)]`}
+            style={{ width: `${bar ?? 0}%` }}
+          />
+        </div>
+      )}
+      {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}
     </div>
   );
 }
