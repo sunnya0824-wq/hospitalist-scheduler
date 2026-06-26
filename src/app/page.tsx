@@ -448,26 +448,26 @@ function CountField({
 
 type Accent = "cyan" | "green" | "magenta" | "amber";
 
-const ACCENT: Record<Accent, { text: string; border: string; bar: string }> = {
+const ACCENT: Record<Accent, { text: string; glow: string; border: string }> = {
   cyan: {
     text: "text-cyan-300",
+    glow: "drop-shadow-[0_0_12px_rgba(34,211,238,0.4)]",
     border: "border-t-cyan-400/60",
-    bar: "from-cyan-400 via-fuchsia-400 to-cyan-400",
   },
   green: {
-    text: "text-emerald-400",
+    text: "text-emerald-300",
+    glow: "drop-shadow-[0_0_12px_rgba(52,211,153,0.4)]",
     border: "border-t-emerald-400/60",
-    bar: "from-emerald-400 to-emerald-300",
   },
   magenta: {
-    text: "text-fuchsia-400",
+    text: "text-fuchsia-300",
+    glow: "drop-shadow-[0_0_12px_rgba(232,121,249,0.4)]",
     border: "border-t-fuchsia-400/60",
-    bar: "from-fuchsia-400 to-fuchsia-300",
   },
   amber: {
     text: "text-amber-300",
+    glow: "drop-shadow-[0_0_12px_rgba(251,191,36,0.4)]",
     border: "border-t-amber-400/60",
-    bar: "from-cyan-400 via-fuchsia-400 to-cyan-400",
   },
 };
 
@@ -495,15 +495,17 @@ function StatCard({
         <Icon className={`h-3.5 w-3.5 ${a.text}`} />
         {label}
       </div>
-      <div className={`mt-1 text-5xl font-bold tabular-nums ${a.text}`}>
+      <div className={`mt-1 text-5xl font-bold tabular-nums ${a.text} ${a.glow}`}>
         {value}
       </div>
       {bar !== undefined && (
-        <div className="mt-2 h-2.5 w-full rounded-full border border-cyan-900/40 bg-slate-800">
-          <div
-            className={`h-full rounded-full bg-gradient-to-r ${a.bar} shadow-[0_0_10px_rgba(34,211,238,0.5)]`}
-            style={{ width: `${bar ?? 0}%` }}
-          />
+        <div className="mt-2 h-3 w-full overflow-hidden rounded-full border border-amber-900/30 bg-slate-800">
+          {bar !== null && (
+            <div
+              className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-fuchsia-400 to-amber-400 shadow-[0_0_12px_rgba(232,121,249,0.4)]"
+              style={{ width: `${Math.max(bar, 4)}%` }}
+            />
+          )}
         </div>
       )}
       {sub && <div className="mt-1 text-xs text-slate-500">{sub}</div>}

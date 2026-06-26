@@ -833,15 +833,17 @@ function CalendarFeedCard({ physician }: { physician: PhysicianDTO }) {
         hospitals.
       </p>
       <div className="flex flex-wrap items-center gap-2">
-        <code className="min-w-0 flex-1 overflow-x-auto whitespace-nowrap rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1.5 font-mono text-xs text-slate-300">
-          {url}
-        </code>
-        <button
-          onClick={copy}
-          className="rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20"
-        >
-          {copied ? "Copied!" : "Copy URL"}
-        </button>
+        <div className="relative min-w-0 flex-1">
+          <code className="block w-full overflow-x-auto whitespace-nowrap rounded-md border border-cyan-900/40 bg-slate-950/60 px-3 py-2 pr-24 font-mono text-xs text-cyan-200">
+            {url}
+          </code>
+          <button
+            onClick={copy}
+            className="absolute right-1 top-1/2 -translate-y-1/2 rounded-md border border-cyan-900/50 bg-slate-900/80 px-3 py-1 text-xs font-semibold uppercase tracking-wide text-cyan-300 transition hover:border-cyan-400/60 hover:text-cyan-200 hover:shadow-[0_0_12px_rgba(34,211,238,0.25)]"
+          >
+            {copied ? "Copied!" : "Copy"}
+          </button>
+        </div>
         <button
           onClick={reset}
           disabled={resetting}
