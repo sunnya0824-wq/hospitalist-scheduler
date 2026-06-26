@@ -82,8 +82,22 @@ export default function PhysiciansPage() {
     });
 
   const remove = async (p: PhysicianDTO) => {
-    if (!confirm(`Delete ${p.fullName}?`)) return;
+    if (
+      !confirm(
+        `Permanently delete ${p.fullName}? This cannot be undone. To temporarily remove them from scheduling, use "Remove from census" instead.`
+      )
+    )
+      return;
     await fetch(`/api/physicians/${p.id}`, { method: "DELETE" });
+    await load();
+  };
+
+  const toggleActive = async (p: PhysicianDTO) => {
+    await fetch(`/api/physicians/${p.id}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...p, active: !p.active }),
+    });
     await load();
   };
 
@@ -129,6 +143,7 @@ export default function PhysiciansPage() {
           <thead>
             <tr className="border-b text-left text-xs uppercase text-slate-400">
               <th className="px-4 py-2">Name</th>
+              <th className="px-4 py-2">Status</th>
               <th className="px-4 py-2">Desired</th>
               <th className="px-4 py-2">Min/Max</th>
               <th className="px-4 py-2">Nights</th>
@@ -142,10 +157,20 @@ export default function PhysiciansPage() {
             {physicians.map((p) => (
               <tr key={p.id} className="border-b border-slate-100">
                 <td className="px-4 py-2">
-                  <span className="font-medium">{p.fullName}</span>
-                  {!p.active && (
-                    <span className="ml-2 text-xs text-slate-400">
-                      inactive
+                  <span className={`font-medium ${!p.active ? "text-slate-400" : ""}`}>
+                    {p.fullName}
+                  </span>
+                </td>
+                <td className="px-4 py-2">
+                  {p.active ? (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-50 px-2 py-0.5 text-xs font-medium text-emerald-700">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
+                      On census
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-500">
+                      <span className="h-1.5 w-1.5 rounded-full bg-slate-400" />
+                      Off census
                     </span>
                   )}
                 </td>
@@ -180,8 +205,22 @@ export default function PhysiciansPage() {
                     Edit
                   </button>
                   <button
+                    onClick={() => toggleActive(p)}
+                    className={`mr-2 hover:underline ${
+                      p.active ? "text-amber-600" : "text-emerald-600"
+                    }`}
+                    title={
+                      p.active
+                        ? "Hide from schedule generation; can be restored anytime"
+                        : "Restore to scheduling"
+                    }
+                  >
+                    {p.active ? "Remove from census" : "Restore"}
+                  </button>
+                  <button
                     onClick={() => remove(p)}
                     className="text-rose-600 hover:underline"
+                    title="Permanently delete this physician record"
                   >
                     Delete
                   </button>
@@ -190,7 +229,7 @@ export default function PhysiciansPage() {
             ))}
             {!loading && physicians.length === 0 && (
               <tr>
-                <td colSpan={8} className="px-4 py-8 text-center text-slate-500">
+                <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
                   No physicians yet. Click{" "}
                   <strong>Seed demo data</strong> to load 20 sample physicians.
                 </td>
