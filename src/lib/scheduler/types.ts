@@ -20,6 +20,12 @@ export interface SchedulerPhysician {
   shiftPreference: ShiftPreference;
   nightEligible: boolean;
   adminEligible: boolean;
+  /** Fractional appointment (1.0 = full time). Scales the auto-computed target. */
+  fteMultiplier: number;
+  /** Explicit monthly shift target; null → derived from the monthly average. */
+  monthlyShiftTarget: number | null;
+  /** Hard cap on consecutive working days across all hospitals. */
+  maxConsecutiveDays: number;
   /** Community hospitals this physician may be assigned rounders at. MAIN is implicit. */
   eligibleHospitals: Set<Hospital>;
   unavailableDates: Set<string>;
@@ -61,7 +67,10 @@ export interface PhysicianStats {
   admin: number;
   nights: number;
   weekends: number;
+  holidays: number;
   desiredShifts: number;
+  /** Resolved monthly target (override or FTE-scaled average). */
+  target: number;
   minShifts: number;
   maxShifts: number;
   belowMin: boolean;

@@ -20,6 +20,7 @@ import {
   fetchTimeOff,
   saveTimeOff,
   deleteTimeOff,
+  resetIcsToken,
 } from "@/lib/client";
 import type {
   AssignmentDTO,
@@ -198,15 +199,29 @@ function PhysicianDetailContent() {
             })}
           </div>
         </div>
-        <MonthPicker
-          year={year}
-          month={month}
-          onChange={(y, m) => {
-            setYear(y);
-            setMonth(m);
-          }}
-        />
+        <div className="flex flex-col items-end gap-2">
+          <MonthPicker
+            year={year}
+            month={month}
+            onChange={(y, m) => {
+              setYear(y);
+              setMonth(m);
+            }}
+          />
+          <a
+            href={`/physicians/${id}/print?year=${year}&month=${month}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 hover:shadow-[0_0_12px_rgba(34,211,238,0.4)]"
+          >
+            Export schedule (PDF)
+          </a>
+        </div>
       </header>
+
+      <WorkloadCard physician={physician} onSaved={load} />
+
+      <CalendarFeedCard physician={physician} />
 
       <TimeOffCard
         physicianId={id}
@@ -638,6 +653,216 @@ function TimeOffCard({
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function WorkloadCard({
+  physician,
+  onSaved,
+}: {
+  physician: PhysicianDTO;
+  onSaved: () => void | Promise<void>;
+}) {
+  const [fte, setFte] = useState(physician.fteMultiplier);
+  const [target, setTarget] = useState<string>(
+    physician.monthlyShiftTarget == null
+      ? ""
+      : String(physician.monthlyShiftTarget)
+  );
+  const [maxDays, setMaxDays] = useState(physician.maxConsecutiveDays);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const save = async () => {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const res = await fetch(`/api/physicians/${physician.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          fteMultiplier: fte,
+          monthlyShiftTarget: target === "" ? null : Number(target),
+          maxConsecutiveDays: maxDays,
+        }),
+      });
+      if (!res.ok) throw new Error();
+      setMessage("Workload saved.");
+      await onSaved();
+    } catch {
+      setMessage("Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] p-5">
+      <h2 className="mb-1 font-semibold uppercase tracking-wide text-slate-200">
+        Workload
+      </h2>
+      <p className="mb-3 text-xs text-slate-400">
+        FTE scales the auto-computed monthly target. Leave the target blank to
+        derive it from the FTE-weighted average. Max consecutive days is a hard
+        cap the scheduler never exceeds.
+      </p>
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+        <label className="block">
+          <span className="text-xs font-medium text-slate-300">
+            FTE multiplier{" "}
+            <span className="text-slate-500">(0.1–1.0)</span>
+          </span>
+          <input
+            type="number"
+            step={0.1}
+            min={0.1}
+            max={1.0}
+            value={fte}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (Number.isFinite(n))
+                setFte(Math.min(1, Math.max(0.1, n)));
+            }}
+            className="mt-0.5 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1.5 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-slate-300">
+            Monthly target{" "}
+            <span className="text-slate-500">(blank = auto)</span>
+          </span>
+          <input
+            type="number"
+            min={0}
+            max={31}
+            value={target}
+            placeholder="auto"
+            onChange={(e) => setTarget(e.target.value)}
+            className="mt-0.5 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1.5 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-slate-300">
+            Max consecutive days{" "}
+            <span className="text-slate-500">(1–14)</span>
+          </span>
+          <input
+            type="number"
+            min={1}
+            max={14}
+            value={maxDays}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (Number.isFinite(n))
+                setMaxDays(Math.min(14, Math.max(1, Math.round(n))));
+            }}
+            className="mt-0.5 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1.5 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
+          />
+        </label>
+      </div>
+      <div className="mt-4 flex items-center gap-3">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 hover:shadow-[0_0_14px_rgba(34,211,238,0.5)] disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save workload"}
+        </button>
+        {message && <span className="text-xs text-slate-400">{message}</span>}
+      </div>
+    </div>
+  );
+}
+
+function CalendarFeedCard({ physician }: { physician: PhysicianDTO }) {
+  const [token, setToken] = useState(physician.icsToken);
+  const [copied, setCopied] = useState(false);
+  const [showHelp, setShowHelp] = useState(false);
+  const [resetting, setResetting] = useState(false);
+
+  const origin =
+    typeof window !== "undefined" ? window.location.origin : "";
+  const url = `${origin}/api/ics/${token}`;
+
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      /* clipboard unavailable */
+    }
+  };
+
+  const reset = async () => {
+    if (
+      !window.confirm(
+        "Reset the calendar URL? Existing subscriptions will stop updating."
+      )
+    )
+      return;
+    setResetting(true);
+    try {
+      setToken(await resetIcsToken(physician.id));
+    } finally {
+      setResetting(false);
+    }
+  };
+
+  return (
+    <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] p-5">
+      <h2 className="mb-1 font-semibold uppercase tracking-wide text-slate-200">
+        Calendar feed
+      </h2>
+      <p className="mb-3 text-xs text-slate-400">
+        Subscribe to this physician&apos;s shifts in any calendar app. The feed
+        covers the last 30 days through the end of next month across all
+        hospitals.
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <input
+          readOnly
+          value={url}
+          onFocus={(e) => e.currentTarget.select()}
+          className="min-w-0 flex-1 rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1.5 text-xs text-slate-300 focus:border-cyan-400 focus:outline-none"
+        />
+        <button
+          onClick={copy}
+          className="rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20"
+        >
+          {copied ? "Copied!" : "Copy URL"}
+        </button>
+        <button
+          onClick={reset}
+          disabled={resetting}
+          className="rounded-lg border border-rose-400/50 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-rose-300 transition hover:bg-rose-500/10 disabled:opacity-50"
+        >
+          {resetting ? "Resetting…" : "Reset URL"}
+        </button>
+      </div>
+      <button
+        onClick={() => setShowHelp((v) => !v)}
+        className="mt-3 text-xs font-medium text-cyan-300 hover:underline"
+      >
+        {showHelp ? "Hide" : "How to subscribe"} ▾
+      </button>
+      {showHelp && (
+        <div className="mt-2 space-y-2 rounded-lg border border-[#1e293b] bg-[#0a0e1a] p-3 text-xs text-slate-400">
+          <p>
+            <span className="font-semibold text-slate-300">Google Calendar:</span>{" "}
+            Other calendars → + → From URL → paste the URL above.
+          </p>
+          <p>
+            <span className="font-semibold text-slate-300">Apple Calendar:</span>{" "}
+            File → New Calendar Subscription → paste the URL.
+          </p>
+          <p>
+            Subscribed calendars refresh on their own schedule; the feed always
+            reflects the latest published schedule.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

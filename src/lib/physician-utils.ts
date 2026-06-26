@@ -10,7 +10,11 @@ export function sanitize(fields: Record<string, unknown>) {
     "maxNights",
     "minAdmin",
     "maxAdmin",
+    "fteMultiplier",
+    "maxConsecutiveDays",
   ];
+  // Numeric fields that may be cleared to null (no value set).
+  const nullableNumeric = ["monthlyShiftTarget"];
   const allowed = [
     "fullName",
     "active",
@@ -22,11 +26,19 @@ export function sanitize(fields: Record<string, unknown>) {
     "canWorkClinton",
     "notes",
     ...numeric,
+    ...nullableNumeric,
   ];
   const out: Record<string, unknown> = {};
   for (const key of allowed) {
     if (!(key in fields)) continue;
-    out[key] = numeric.includes(key) ? Number(fields[key]) : fields[key];
+    if (nullableNumeric.includes(key)) {
+      const v = fields[key];
+      out[key] = v === null || v === "" || v === undefined ? null : Number(v);
+    } else if (numeric.includes(key)) {
+      out[key] = Number(fields[key]);
+    } else {
+      out[key] = fields[key];
+    }
   }
   return out;
 }

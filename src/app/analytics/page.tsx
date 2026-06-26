@@ -43,6 +43,20 @@ function AnalyticsContent() {
   const maxTotal = Math.max(1, ...stats.map((s) => s.total));
   const maxNights = Math.max(1, ...stats.map((s) => s.nights));
 
+  const dist = (vals: number[]) => {
+    if (vals.length === 0) return { stddev: 0, range: 0 };
+    const mean = vals.reduce((a, v) => a + v, 0) / vals.length;
+    const variance =
+      vals.reduce((a, v) => a + (v - mean) ** 2, 0) / vals.length;
+    return {
+      stddev: Math.sqrt(variance),
+      range: Math.max(...vals) - Math.min(...vals),
+    };
+  };
+  const allDist = dist(stats.map((s) => s.total));
+  const weekendDist = dist(stats.map((s) => s.weekends));
+  const holidayDist = dist(stats.map((s) => s.holidays));
+
   const assignments = data?.assignments ?? [];
   const hospitalBreakdown = HOSPITALS.map((h) => {
     const slots = assignments.filter((a) => a.hospital === h);
@@ -146,13 +160,89 @@ function AnalyticsContent() {
             </Section>
           )}
 
+          <Section title="Fairness breakdown">
+            <p className="mb-3 text-xs text-slate-400">
+              Lower spread means a fairer split. Combined fairness score{" "}
+              <span className="text-slate-200">{fairness ?? "—"}</span> is the
+              headline; the three measures below break it out by shift kind.
+            </p>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+              <FairnessStat
+                label="All shifts"
+                dist={allDist}
+                accent="text-cyan-300"
+              />
+              <FairnessStat
+                label="Weekend shifts"
+                dist={weekendDist}
+                accent="text-fuchsia-300"
+              />
+              <FairnessStat
+                label="Holiday shifts"
+                dist={holidayDist}
+                accent="text-amber-300"
+              />
+            </div>
+          </Section>
+
+          <Section title="Assigned / Target">
+            <div className="space-y-2">
+              {stats.map((s) => {
+                const target = s.target || 0;
+                const ratio = target > 0 ? s.total / target : 1;
+                const status =
+                  target === 0
+                    ? "none"
+                    : s.total > target
+                    ? "over"
+                    : s.total === target
+                    ? "at"
+                    : "under";
+                const barColor =
+                  status === "over"
+                    ? "bg-rose-400"
+                    : status === "at"
+                    ? "bg-amber-400"
+                    : "bg-emerald-400";
+                return (
+                  <div
+                    key={s.physicianId}
+                    className="flex items-center gap-3"
+                  >
+                    <div className="w-40 shrink-0 truncate text-sm">
+                      {s.fullName}
+                    </div>
+                    <div className="relative h-5 flex-1 rounded bg-[#0a0e1a]">
+                      <div
+                        className={`h-5 rounded ${barColor}`}
+                        style={{
+                          width: `${Math.min(ratio, 1.5) / 1.5 * 100}%`,
+                        }}
+                      />
+                      {target > 0 && (
+                        <div
+                          className="absolute top-0 h-5 w-0.5 bg-slate-300"
+                          style={{ left: `${(1 / 1.5) * 100}%` }}
+                          title={`Target ${target}`}
+                        />
+                      )}
+                    </div>
+                    <div className="w-16 text-right text-sm font-medium">
+                      {s.total}/{target || "—"}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </Section>
+
           <Section title="Total shifts per physician">
             <BarList
               stats={stats}
               value={(s) => s.total}
               max={maxTotal}
               color="bg-cyan-400"
-              target={(s) => s.desiredShifts}
+              target={(s) => s.target || s.desiredShifts}
             />
           </Section>
 
@@ -176,6 +266,7 @@ function AnalyticsContent() {
                     <th className="px-3 py-2">Day Admit</th>
                     <th className="px-3 py-2">Nights</th>
                     <th className="px-3 py-2">Weekends</th>
+                    <th className="px-3 py-2">Holidays</th>
                     <th className="px-3 py-2">Target</th>
                     <th className="px-3 py-2">Status</th>
                   </tr>
@@ -189,8 +280,11 @@ function AnalyticsContent() {
                       <td className="px-3 py-2">{s.admin}</td>
                       <td className="px-3 py-2">{s.nights}</td>
                       <td className="px-3 py-2">{s.weekends}</td>
+                      <td className="px-3 py-2 text-amber-300/80">
+                        {s.holidays}
+                      </td>
                       <td className="px-3 py-2 text-slate-400">
-                        {s.desiredShifts}
+                        {s.target || s.desiredShifts}
                       </td>
                       <td className="px-3 py-2">
                         {s.belowMin ? (
@@ -268,6 +362,36 @@ function Section({
     <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] p-5">
       <h2 className="mb-3 font-semibold uppercase tracking-wide text-slate-200">{title}</h2>
       {children}
+    </div>
+  );
+}
+
+function FairnessStat({
+  label,
+  dist,
+  accent,
+}: {
+  label: string;
+  dist: { stddev: number; range: number };
+  accent: string;
+}) {
+  return (
+    <div className="rounded-lg border border-[#1e293b] bg-[#0a0e1a] p-3">
+      <div className={`text-xs font-medium uppercase tracking-wide ${accent}`}>
+        {label}
+      </div>
+      <div className="mt-2 flex items-baseline gap-3">
+        <div>
+          <div className="text-lg font-bold text-slate-100">
+            {dist.stddev.toFixed(2)}
+          </div>
+          <div className="text-[10px] uppercase text-slate-500">Std dev</div>
+        </div>
+        <div>
+          <div className="text-lg font-bold text-slate-100">{dist.range}</div>
+          <div className="text-[10px] uppercase text-slate-500">Range</div>
+        </div>
+      </div>
     </div>
   );
 }

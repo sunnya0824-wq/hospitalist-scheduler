@@ -61,6 +61,14 @@ model Physician {
   canWorkCarson  Boolean         @default(false)
   canWorkEaton   Boolean         @default(false)
   canWorkClinton Boolean         @default(false)
+  // Fractional appointment (1.0 = full time). Scales the auto-computed target.
+  fteMultiplier      Decimal     @default(1.0)
+  // Explicit per-month shift target. Null → round(monthlyAvg * fteMultiplier).
+  monthlyShiftTarget Int?
+  // Hard cap on consecutive working days across all hospitals.
+  maxConsecutiveDays Int         @default(7)
+  // Opaque token for the personal ICS calendar feed.
+  icsToken       String          @unique @default(cuid())
   notes          String?
 
   availability    PhysicianAvailability[]

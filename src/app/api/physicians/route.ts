@@ -9,17 +9,19 @@ export const runtime = "nodejs";
 
 export async function GET() {
   const physicians = await prisma.physician.findMany({
-    include: { availability: true },
+    include: { availability: true, timeOffRequests: true },
     orderBy: { fullName: "asc" },
   });
   const shaped = physicians.map((p) => ({
     ...p,
+    fteMultiplier: Number(p.fteMultiplier),
     unavailableDates: p.availability
       .filter((a) => a.type === "UNAVAILABLE")
       .map((a) => toISODate(a.date)),
     preferredDates: p.availability
       .filter((a) => a.type === "PREFERRED")
       .map((a) => toISODate(a.date)),
+    timeOffDates: p.timeOffRequests.map((t) => toISODate(t.date)),
   }));
   return NextResponse.json(shaped);
 }

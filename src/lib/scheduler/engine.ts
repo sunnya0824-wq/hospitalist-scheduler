@@ -8,6 +8,7 @@ import type {
   UnfilledSlot,
 } from "./types";
 import { addDaysISO, isWeekend } from "./dates";
+import { isHoliday } from "../holidays";
 import { SHIFT_LABELS, isNightType } from "./shifts";
 
 /**
@@ -20,6 +21,7 @@ interface Tally {
   admin: number;
   nights: number;
   weekends: number;
+  holidays: number;
   /** ISO dates the physician is already working (any shift). */
   workingDates: Set<string>;
   /**
@@ -36,6 +38,7 @@ function emptyTally(): Tally {
     admin: 0,
     nights: 0,
     weekends: 0,
+    holidays: 0,
     workingDates: new Set(),
     blockedDates: new Set(),
   };
@@ -82,11 +85,36 @@ function hardConstraintViolation(
   if (slot.hospital !== "MAIN" && !phys.eligibleHospitals.has(slot.hospital)) {
     return "not eligible for this hospital";
   }
+  // Hard cap on consecutive working days (counts the candidate, looking both
+  // backward and forward so a new shift can't bridge two runs past the cap).
+  if (consecutiveSpanWith(tally, slot.date) > phys.maxConsecutiveDays) {
+    return "exceeds max consecutive days";
+  }
   // Respect the hard cap unless the run overrides it.
   if (!opts.allowOverMax && tally.total >= phys.maxShifts) {
     return "at max shifts";
   }
   return null;
+}
+
+/**
+ * Total consecutive working-day streak that would result from adding `date`,
+ * spanning both the days before and the days after it.
+ */
+function consecutiveSpanWith(tally: Tally, date: string): number {
+  let back = 0;
+  let cursor = addDaysISO(date, -1);
+  while (tally.workingDates.has(cursor)) {
+    back += 1;
+    cursor = addDaysISO(cursor, -1);
+  }
+  let fwd = 0;
+  cursor = addDaysISO(date, 1);
+  while (tally.workingDates.has(cursor)) {
+    fwd += 1;
+    cursor = addDaysISO(cursor, 1);
+  }
+  return back + fwd + 1;
 }
 
 /**
@@ -99,7 +127,9 @@ function score(
   slot: ShiftSlot,
   tally: Tally,
   avgNights: number,
-  avgWeekends: number
+  avgWeekends: number,
+  avgHolidays: number,
+  target: number
 ): number {
   let s = 0;
 
@@ -115,6 +145,9 @@ function score(
   // Pull toward the desired number of shifts; penalty grows with distance.
   const distanceToDesired = phys.desiredShifts - tally.total;
   s += distanceToDesired * 25;
+  // Soft preference toward the (FTE-scaled) monthly target: favour those still
+  // under target, push those already over it down. Never a hard constraint.
+  s += (target - tally.total) * 18;
 
   // --- Category targeting --------------------------------------------------
   if (isNightType(slot.shiftType)) {
@@ -138,6 +171,10 @@ function score(
   // Weekend fairness.
   if (isWeekend(slot.date)) {
     s -= (tally.weekends - avgWeekends) * 25;
+  }
+  // Holiday fairness: spread holiday duty by favouring the least-burdened.
+  if (isHoliday(slot.date)) {
+    s -= (tally.holidays - avgHolidays) * 30;
   }
 
   // --- Preferences ---------------------------------------------------------
@@ -174,6 +211,7 @@ function applyAssignment(tally: Tally, slot: ShiftSlot): void {
   tally.total += 1;
   tally.workingDates.add(slot.date);
   if (isWeekend(slot.date)) tally.weekends += 1;
+  if (isHoliday(slot.date)) tally.holidays += 1;
   if (slot.shiftType === "ROUNDER") tally.rounding += 1;
   else if (slot.shiftType === "ADMIN") tally.admin += 1;
   else if (isNightType(slot.shiftType)) {
@@ -216,6 +254,14 @@ export function runScheduler(
   const tallies = new Map<string, Tally>();
   for (const p of active) tallies.set(p.id, emptyTally());
 
+  // Resolve each physician's monthly target: an explicit override, or the
+  // average shifts-per-physician scaled by their FTE. Used as a soft pull.
+  const monthlyAvg = active.length > 0 ? slots.length / active.length : 0;
+  const targets = new Map<string, number>();
+  for (const p of active) {
+    targets.set(p.id, resolveTarget(p, monthlyAvg));
+  }
+
   // Seed post-night rest from nights worked just before the slot window so a
   // night on the prior month's last days still blocks this month's first days.
   for (const pn of opts.priorNights ?? []) {
@@ -255,12 +301,21 @@ export function runScheduler(
   for (const slot of open) {
     const avgNights = average(active.map((p) => tallies.get(p.id)!.nights));
     const avgWeekends = average(active.map((p) => tallies.get(p.id)!.weekends));
+    const avgHolidays = average(active.map((p) => tallies.get(p.id)!.holidays));
 
     let best: { phys: SchedulerPhysician; score: number } | null = null;
     for (const phys of active) {
       const tally = tallies.get(phys.id)!;
       if (hardConstraintViolation(phys, slot, tally, opts)) continue;
-      const sc = score(phys, slot, tally, avgNights, avgWeekends);
+      const sc = score(
+        phys,
+        slot,
+        tally,
+        avgNights,
+        avgWeekends,
+        avgHolidays,
+        targets.get(phys.id)!
+      );
       if (!best || sc > best.score) best = { phys, score: sc };
     }
 
@@ -295,7 +350,7 @@ export function runScheduler(
   }
 
   // Step 3: build per-physician stats and constraint warnings.
-  const stats = buildStats(active, tallies, warnings);
+  const stats = buildStats(active, tallies, targets, warnings);
   const fairnessScore = computeFairness(stats);
 
   // Restore deterministic ordering for storage/display (by date then slot).
@@ -310,9 +365,16 @@ export function runScheduler(
   return { assignments: results, warnings, stats, fairnessScore, unfilledSlots };
 }
 
+/** Resolve a physician's monthly target from an override or the FTE-scaled average. */
+function resolveTarget(phys: SchedulerPhysician, monthlyAvg: number): number {
+  if (phys.monthlyShiftTarget != null) return phys.monthlyShiftTarget;
+  return Math.round(monthlyAvg * phys.fteMultiplier);
+}
+
 function buildStats(
   active: SchedulerPhysician[],
   tallies: Map<string, Tally>,
+  targets: Map<string, number>,
   warnings: string[]
 ): PhysicianStats[] {
   return active.map((p) => {
@@ -342,7 +404,9 @@ function buildStats(
       admin: t.admin,
       nights: t.nights,
       weekends: t.weekends,
+      holidays: t.holidays,
       desiredShifts: p.desiredShifts,
+      target: targets.get(p.id) ?? p.desiredShifts,
       minShifts: p.minShifts,
       maxShifts: p.maxShifts,
       belowMin,

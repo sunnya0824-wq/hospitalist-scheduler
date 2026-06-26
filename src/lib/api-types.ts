@@ -25,9 +25,14 @@ export interface PhysicianDTO {
   canWorkCarson: boolean;
   canWorkEaton: boolean;
   canWorkClinton: boolean;
+  fteMultiplier: number;
+  monthlyShiftTarget: number | null;
+  maxConsecutiveDays: number;
+  icsToken: string;
   notes: string | null;
   unavailableDates: string[];
   preferredDates: string[];
+  timeOffDates: string[];
 }
 
 export interface AssignmentDTO {
@@ -74,7 +79,9 @@ export interface PhysicianStatDTO {
   admin: number;
   nights: number;
   weekends: number;
+  holidays: number;
   desiredShifts: number;
+  target: number;
   minShifts: number;
   maxShifts: number;
   belowMin: boolean;

@@ -7,7 +7,15 @@ import { MonthPicker } from "@/components/MonthPicker";
 import { ShiftChip, ShiftLegend } from "@/components/ShiftChip";
 import { MONTH_NAMES, getHospitalBadge } from "@/lib/shift-style";
 import { scheduleColumns, HOSPITALS } from "@/lib/scheduler/shifts";
-import { fetchMonth, fetchPhysicians, generateMonth } from "@/lib/client";
+import { addDaysISO, isWeekend } from "@/lib/scheduler/dates";
+import { isHoliday, holidayName } from "@/lib/holidays";
+import {
+  fetchMonth,
+  fetchPhysicians,
+  generateMonth,
+  swapAssignments,
+  unlockAll,
+} from "@/lib/client";
 import type {
   AssignmentDTO,
   MonthScheduleDTO,
@@ -60,6 +68,13 @@ function ScheduleContent() {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [showUnfilled, setShowUnfilled] = useState(false);
+  const [swapMode, setSwapMode] = useState(false);
+  const [swapFirst, setSwapFirst] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ text: string; kind: "ok" | "err" } | null>(
+    null
+  );
+  const [recent, setRecent] = useState<Set<string>>(new Set());
+  const [unlocking, setUnlocking] = useState(false);
 
   const load = useCallback(async () => {
     const [m, p] = await Promise.all([
@@ -73,6 +88,69 @@ function ScheduleContent() {
   useEffect(() => {
     load();
   }, [load]);
+
+  // Escape exits swap mode.
+  useEffect(() => {
+    if (!swapMode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        setSwapMode(false);
+        setSwapFirst(null);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [swapMode]);
+
+  const flash = (text: string, kind: "ok" | "err") => {
+    setToast({ text, kind });
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  /** Mark assignment ids as recently edited so they pulse for ~2s. */
+  const markRecent = (ids: string[]) => {
+    setRecent(new Set(ids));
+    setTimeout(() => setRecent(new Set()), 2200);
+  };
+
+  const onChipClick = async (a: AssignmentDTO) => {
+    if (!swapMode) {
+      setEditing(a);
+      return;
+    }
+    if (!swapFirst) {
+      setSwapFirst(a.id);
+      return;
+    }
+    if (swapFirst === a.id) {
+      setSwapFirst(null);
+      return;
+    }
+    const first = swapFirst;
+    setSwapFirst(null);
+    try {
+      await swapAssignments(first, a.id);
+      markRecent([first, a.id]);
+      await load();
+      flash("Shifts swapped.", "ok");
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Swap failed.", "err");
+    }
+  };
+
+  const onUnlockAll = async () => {
+    if (!window.confirm("Unlock every locked slot this month?")) return;
+    setUnlocking(true);
+    try {
+      const n = await unlockAll(year, month);
+      await load();
+      flash(`Unlocked ${n} slot${n === 1 ? "" : "s"}.`, "ok");
+    } catch {
+      flash("Failed to unlock.", "err");
+    } finally {
+      setUnlocking(false);
+    }
+  };
 
   const syncUrl = (y: number, m: number, tab: HospitalTab) => {
     router.replace(
@@ -111,6 +189,7 @@ function ScheduleContent() {
 
   const allAssignments = data?.assignments ?? [];
   const unfilled = allAssignments.filter((a) => !a.physicianId);
+  const lockedCount = allAssignments.filter((a) => a.isLocked).length;
   const combined = hospitalTab === "COMBINED";
   const assignments = combined
     ? allAssignments
@@ -155,6 +234,26 @@ function ScheduleContent() {
         />
       )}
 
+      {toast && (
+        <div
+          className={`mb-4 rounded-lg border px-4 py-2 text-sm ${
+            toast.kind === "ok"
+              ? "border-emerald-400/50 bg-emerald-500/10 text-emerald-300"
+              : "border-rose-400/50 bg-rose-500/10 text-rose-300"
+          }`}
+        >
+          {toast.text}
+        </div>
+      )}
+
+      {swapMode && (
+        <div className="mb-4 rounded-lg border border-cyan-400/50 bg-cyan-500/10 px-4 py-2 text-sm text-cyan-200">
+          Swap mode: click two shifts to exchange their physicians.{" "}
+          {swapFirst ? "Pick the second shift…" : "Pick the first shift…"} Press{" "}
+          <kbd className="rounded bg-[#0a0e1a] px-1">Esc</kbd> to exit.
+        </div>
+      )}
+
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex rounded-lg border border-[#1e293b] bg-[#0f172a] p-0.5">
           <button
@@ -179,6 +278,28 @@ function ScheduleContent() {
           </button>
         </div>
         <div className="flex flex-wrap gap-2">
+          <button
+            onClick={() => {
+              setSwapMode((v) => !v);
+              setSwapFirst(null);
+            }}
+            className={`rounded-lg border px-3 py-2 text-sm font-semibold uppercase tracking-wide transition ${
+              swapMode
+                ? "border-cyan-400 bg-cyan-500/20 text-cyan-200 shadow-[0_0_14px_rgba(34,211,238,0.5)]"
+                : "border-[#1e293b] bg-[#0f172a] text-slate-300 hover:border-cyan-400/60 hover:text-cyan-300"
+            }`}
+          >
+            {swapMode ? "Swap: on" : "Swap mode"}
+          </button>
+          {lockedCount > 0 && (
+            <button
+              onClick={onUnlockAll}
+              disabled={unlocking}
+              className="rounded-lg border border-amber-400/50 bg-amber-500/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-amber-300 transition hover:bg-amber-500/20 disabled:opacity-50"
+            >
+              {unlocking ? "Unlocking…" : `Unlock all (${lockedCount})`}
+            </button>
+          )}
           <button
             onClick={regenerate}
             disabled={busy}
@@ -234,8 +355,11 @@ function ScheduleContent() {
       ) : view === "day" ? (
         <DayView
           assignments={assignments}
-          onEdit={setEditing}
+          onEdit={onChipClick}
           showHospital={combined}
+          swapMode={swapMode}
+          swapFirst={swapFirst}
+          recent={recent}
         />
       ) : (
         <PhysicianView
@@ -252,8 +376,10 @@ function ScheduleContent() {
         <EditModal
           assignment={editing}
           physicians={physicians}
+          allAssignments={allAssignments}
           onClose={() => setEditing(null)}
           onSaved={async () => {
+            markRecent([editing.id]);
             setEditing(null);
             await load();
           }}
@@ -267,49 +393,94 @@ function DayView({
   assignments,
   onEdit,
   showHospital,
+  swapMode,
+  swapFirst,
+  recent,
 }: {
   assignments: AssignmentDTO[];
   onEdit: (a: AssignmentDTO) => void;
   showHospital: boolean;
+  swapMode: boolean;
+  swapFirst: string | null;
+  recent: Set<string>;
 }) {
   const byDate = useMemo(() => groupByDate(assignments), [assignments]);
   return (
     <div className="space-y-3">
-      {Array.from(byDate.entries()).map(([date, items]) => (
-        <div
-          key={date}
-          className="rounded-xl border border-[#1e293b] bg-[#0f172a] p-4"
-        >
-          <div className="mb-2 flex items-center justify-between">
-            <h3 className="font-semibold">{formatDate(date)}</h3>
-            <span className="text-xs text-slate-400">
-              {items.filter((i) => i.physicianId).length}/{items.length} filled
-            </span>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {items.map((a) => (
-              <button
-                key={a.id}
-                onClick={() => onEdit(a)}
-                className="group relative"
-                title="Click to edit"
+      {Array.from(byDate.entries()).map(([date, items]) => {
+        const weekend = isWeekend(date);
+        const holiday = isHoliday(date);
+        const holName = holidayName(date);
+        return (
+          <div
+            key={date}
+            className={`rounded-xl border bg-[#0f172a] p-4 ${
+              holiday
+                ? "border-fuchsia-500/40"
+                : weekend
+                ? "border-[#243049]"
+                : "border-[#1e293b]"
+            }`}
+          >
+            <div
+              className={`-mx-4 -mt-4 mb-2 flex items-center justify-between rounded-t-xl px-4 py-2 ${
+                holiday
+                  ? "bg-fuchsia-500/10"
+                  : weekend
+                  ? "bg-slate-500/10"
+                  : ""
+              }`}
+            >
+              <h3
+                className={`font-semibold ${
+                  holiday
+                    ? "text-fuchsia-300 underline decoration-fuchsia-400 decoration-2 underline-offset-4"
+                    : ""
+                }`}
+                title={holName ?? undefined}
               >
-                <ShiftChip
-                  shiftType={a.shiftType}
-                  rounderIndex={a.rounderIndex}
-                  name={a.physicianName}
-                  hospital={showHospital ? a.hospital : undefined}
-                />
-                {a.isLocked && (
-                  <span className="absolute -right-1 -top-1 text-[10px]">
-                    🔒
+                {formatDate(date)}
+                {holName && (
+                  <span className="ml-2 text-xs font-normal text-fuchsia-300/80">
+                    {holName}
                   </span>
                 )}
-              </button>
-            ))}
+              </h3>
+              <span className="text-xs text-slate-400">
+                {items.filter((i) => i.physicianId).length}/{items.length} filled
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {items.map((a) => {
+                const selected = swapFirst === a.id;
+                const glow = recent.has(a.id);
+                return (
+                  <button
+                    key={a.id}
+                    onClick={() => onEdit(a)}
+                    className={`group relative rounded-md ${
+                      selected ? "ring-2 ring-cyan-400 ring-offset-1 ring-offset-[#0f172a]" : ""
+                    } ${glow ? "edit-glow" : ""}`}
+                    title={swapMode ? "Click to swap" : "Click to edit"}
+                  >
+                    <ShiftChip
+                      shiftType={a.shiftType}
+                      rounderIndex={a.rounderIndex}
+                      name={a.physicianName}
+                      hospital={showHospital ? a.hospital : undefined}
+                    />
+                    {a.isLocked && (
+                      <span className="absolute -right-1 -top-1 text-[10px]">
+                        🔒
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
@@ -437,14 +608,57 @@ function WarningsPanel({ warnings }: { warnings: string[] }) {
   );
 }
 
+/**
+ * Reason a physician cannot take a slot (best-effort, client-side). Used to
+ * grey out ineligible options in the edit dropdown. The server re-validates
+ * swaps; manual single-slot edits trust this hint.
+ */
+function eligibilityReason(
+  phys: PhysicianDTO,
+  slot: AssignmentDTO,
+  allAssignments: AssignmentDTO[]
+): string | null {
+  const night =
+    slot.shiftType === "NIGHT_ADMIT_1" || slot.shiftType === "NIGHT_ADMIT_2";
+  if (night && !phys.nightEligible) return "not night eligible";
+  if (slot.shiftType === "ADMIN" && !phys.adminEligible)
+    return "not day-admit eligible";
+  if (slot.hospital !== "MAIN") {
+    const ok =
+      slot.hospital === "CARSON"
+        ? phys.canWorkCarson
+        : slot.hospital === "EATON"
+        ? phys.canWorkEaton
+        : phys.canWorkClinton;
+    if (!ok) return "hospital-ineligible";
+  }
+  if (phys.timeOffDates.includes(slot.date)) return "time off that day";
+  const sameDay = allAssignments.some(
+    (x) => x.id !== slot.id && x.physicianId === phys.id && x.date === slot.date
+  );
+  if (sameDay) return "already works that day";
+  const prev1 = addDaysISO(slot.date, -1);
+  const prev2 = addDaysISO(slot.date, -2);
+  const recentNight = allAssignments.some(
+    (x) =>
+      x.physicianId === phys.id &&
+      (x.date === prev1 || x.date === prev2) &&
+      (x.shiftType === "NIGHT_ADMIT_1" || x.shiftType === "NIGHT_ADMIT_2")
+  );
+  if (recentNight) return "post-night rest";
+  return null;
+}
+
 function EditModal({
   assignment,
   physicians,
+  allAssignments,
   onClose,
   onSaved,
 }: {
   assignment: AssignmentDTO;
   physicians: PhysicianDTO[];
+  allAssignments: AssignmentDTO[];
   onClose: () => void;
   onSaved: () => void;
 }) {
@@ -490,15 +704,26 @@ function EditModal({
         <select
           value={physicianId}
           onChange={(e) => setPhysicianId(e.target.value)}
-          className="mb-4 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-2 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
+          className="mb-1 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-2 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
         >
           <option value="">— Unfilled —</option>
-          {physicians.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.fullName}
-            </option>
-          ))}
+          {physicians.map((p) => {
+            const reason =
+              p.id === assignment.physicianId
+                ? null
+                : eligibilityReason(p, assignment, allAssignments);
+            return (
+              <option key={p.id} value={p.id} disabled={Boolean(reason)}>
+                {p.fullName}
+                {reason ? ` — ${reason}` : ""}
+              </option>
+            );
+          })}
         </select>
+        <p className="mb-4 text-xs text-slate-500">
+          Ineligible physicians (same-day shift, post-night rest, time off, or
+          hospital-ineligible) are greyed out.
+        </p>
 
         <label className="mb-4 flex items-center gap-2 text-sm">
           <input

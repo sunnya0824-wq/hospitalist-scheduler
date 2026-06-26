@@ -55,6 +55,9 @@ export async function loadSchedulerPhysicians(): Promise<SchedulerPhysician[]> {
       shiftPreference: p.shiftPreference,
       nightEligible: p.nightEligible,
       adminEligible: p.adminEligible,
+      fteMultiplier: Number(p.fteMultiplier),
+      monthlyShiftTarget: p.monthlyShiftTarget,
+      maxConsecutiveDays: p.maxConsecutiveDays,
       eligibleHospitals: new Set<Hospital>([
         ...(p.canWorkCarson ? (["CARSON"] as const) : []),
         ...(p.canWorkEaton ? (["EATON"] as const) : []),
