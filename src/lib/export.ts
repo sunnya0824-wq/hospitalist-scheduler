@@ -16,9 +16,11 @@ export function buildScheduleTable(schedule: MonthSchedule): string[][] {
 
   const header = ["Date", "Day", ...columns.map((c) => c.label)];
 
-  // Group assignments by date.
+  // Group MAIN-hospital assignments by date (community rounders are a
+  // separate per-hospital grid and would otherwise collide with R columns).
   const byDate = new Map<string, MonthSchedule["assignments"]>();
   for (const a of schedule.assignments) {
+    if (a.hospital !== "MAIN") continue;
     if (!byDate.has(a.date)) byDate.set(a.date, []);
     byDate.get(a.date)!.push(a);
   }

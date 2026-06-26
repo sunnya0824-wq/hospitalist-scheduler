@@ -1,4 +1,9 @@
-import type { ShiftType, ShiftPreference, ScheduleStatus } from "@prisma/client";
+import type {
+  ShiftType,
+  ShiftPreference,
+  ScheduleStatus,
+  Hospital,
+} from "@prisma/client";
 
 /** Physician as returned by GET /api/physicians (with date arrays). */
 export interface PhysicianDTO {
@@ -17,6 +22,9 @@ export interface PhysicianDTO {
   shiftPreference: ShiftPreference;
   nightEligible: boolean;
   adminEligible: boolean;
+  canWorkCarson: boolean;
+  canWorkEaton: boolean;
+  canWorkClinton: boolean;
   notes: string | null;
   unavailableDates: string[];
   preferredDates: string[];
@@ -27,6 +35,7 @@ export interface AssignmentDTO {
   date: string;
   endDate: string;
   shiftType: ShiftType;
+  hospital: Hospital;
   rounderIndex: number | null;
   startTime: string;
   endTime: string;
@@ -72,6 +81,9 @@ export interface MonthScheduleDTO {
   dayAdmitCount: number;
   nightAdmit1Count: number;
   nightAdmit2Count: number;
+  carsonRounderCount: number;
+  eatonRounderCount: number;
+  clintonRounderCount: number;
   assignments: AssignmentDTO[];
   lastRun: RunDTO | null;
 }

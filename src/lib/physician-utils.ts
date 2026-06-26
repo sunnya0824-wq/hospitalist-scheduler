@@ -17,6 +17,9 @@ export function sanitize(fields: Record<string, unknown>) {
     "shiftPreference",
     "nightEligible",
     "adminEligible",
+    "canWorkCarson",
+    "canWorkEaton",
+    "canWorkClinton",
     "notes",
     ...numeric,
   ];

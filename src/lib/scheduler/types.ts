@@ -1,4 +1,4 @@
-import type { ShiftType, ShiftPreference } from "@prisma/client";
+import type { ShiftType, ShiftPreference, Hospital } from "@prisma/client";
 
 /**
  * A physician's scheduling profile — the subset of fields the scheduler
@@ -20,6 +20,8 @@ export interface SchedulerPhysician {
   shiftPreference: ShiftPreference;
   nightEligible: boolean;
   adminEligible: boolean;
+  /** Community hospitals this physician may be assigned rounders at. MAIN is implicit. */
+  eligibleHospitals: Set<Hospital>;
   unavailableDates: Set<string>;
   preferredDates: Set<string>;
 }
@@ -31,6 +33,8 @@ export interface ShiftSlot {
   /** ISO date string the shift ends (night shifts cross midnight). */
   endDate: string;
   shiftType: ShiftType;
+  /** Which hospital this slot belongs to. Community hospitals are rounder-only. */
+  hospital: Hospital;
   rounderIndex: number | null;
   startTime: string;
   endTime: string;

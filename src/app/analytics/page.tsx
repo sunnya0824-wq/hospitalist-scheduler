@@ -3,7 +3,8 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MonthPicker } from "@/components/MonthPicker";
-import { MONTH_NAMES } from "@/lib/shift-style";
+import { MONTH_NAMES, getHospitalBadge } from "@/lib/shift-style";
+import { HOSPITALS, HOSPITAL_LABELS } from "@/lib/scheduler/shifts";
 import { fetchMonth } from "@/lib/client";
 import type {
   MonthScheduleDTO,
@@ -42,6 +43,18 @@ function AnalyticsContent() {
   const maxTotal = Math.max(1, ...stats.map((s) => s.total));
   const maxNights = Math.max(1, ...stats.map((s) => s.nights));
 
+  const assignments = data?.assignments ?? [];
+  const hospitalBreakdown = HOSPITALS.map((h) => {
+    const slots = assignments.filter((a) => a.hospital === h);
+    const filled = slots.filter((a) => a.physicianId);
+    return {
+      hospital: h,
+      total: slots.length,
+      filled: filled.length,
+      physicians: new Set(filled.map((a) => a.physicianId)).size,
+    };
+  }).filter((r) => r.total > 0);
+
   return (
     <div className="mx-auto max-w-5xl">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
@@ -79,6 +92,59 @@ function AnalyticsContent() {
               accent={warnings.length ? "text-rose-400" : "text-emerald-400"}
             />
           </div>
+
+          {hospitalBreakdown.length > 0 && (
+            <Section title="By hospital">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[#1e293b] text-left text-xs uppercase text-cyan-400/70">
+                      <th className="px-3 py-2">Hospital</th>
+                      <th className="px-3 py-2">Slots</th>
+                      <th className="px-3 py-2">Filled</th>
+                      <th className="px-3 py-2">Gaps</th>
+                      <th className="px-3 py-2">Physicians</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {hospitalBreakdown.map((r) => {
+                      const badge = getHospitalBadge(r.hospital);
+                      const gaps = r.total - r.filled;
+                      return (
+                        <tr
+                          key={r.hospital}
+                          className="border-b border-[#1e293b] transition hover:bg-cyan-500/5"
+                        >
+                          <td className="px-3 py-2">
+                            <span
+                              className={`inline-flex items-center gap-2 rounded-md border px-2 py-0.5 text-xs font-medium ${badge.badge}`}
+                            >
+                              {badge.short}
+                              <span className="text-slate-200">
+                                {HOSPITAL_LABELS[r.hospital]}
+                              </span>
+                            </span>
+                          </td>
+                          <td className="px-3 py-2">{r.total}</td>
+                          <td className="px-3 py-2 text-emerald-400">{r.filled}</td>
+                          <td
+                            className={`px-3 py-2 ${
+                              gaps > 0 ? "text-rose-400" : "text-emerald-400"
+                            }`}
+                          >
+                            {gaps}
+                          </td>
+                          <td className="px-3 py-2 text-slate-400">
+                            {r.physicians}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </Section>
+          )}
 
           <Section title="Total shifts per physician">
             <BarList

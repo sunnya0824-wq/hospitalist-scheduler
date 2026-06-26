@@ -5,16 +5,40 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MonthPicker } from "@/components/MonthPicker";
 import { ShiftChip, ShiftLegend } from "@/components/ShiftChip";
-import { MONTH_NAMES } from "@/lib/shift-style";
-import { scheduleColumns } from "@/lib/scheduler/shifts";
+import { MONTH_NAMES, getHospitalBadge } from "@/lib/shift-style";
+import { scheduleColumns, HOSPITALS } from "@/lib/scheduler/shifts";
 import { fetchMonth, fetchPhysicians, generateMonth } from "@/lib/client";
 import type {
   AssignmentDTO,
   MonthScheduleDTO,
   PhysicianDTO,
 } from "@/lib/api-types";
+import type { Hospital } from "@prisma/client";
 
 type View = "day" | "physician";
+type HospitalTab = Hospital | "COMBINED";
+
+const HOSPITAL_TABS: HospitalTab[] = [...HOSPITALS, "COMBINED"];
+
+/** Parse the ?hospital= URL param into a tab value (defaults to MAIN). */
+function parseHospitalTab(raw: string | null): HospitalTab {
+  switch ((raw ?? "").toLowerCase()) {
+    case "carson":
+      return "CARSON";
+    case "eaton":
+      return "EATON";
+    case "clinton":
+      return "CLINTON";
+    case "combined":
+      return "COMBINED";
+    default:
+      return "MAIN";
+  }
+}
+
+function hospitalTabLabel(tab: HospitalTab): string {
+  return tab === "COMBINED" ? "Combined" : getHospitalBadge(tab).label;
+}
 
 function ScheduleContent() {
   const router = useRouter();
@@ -29,6 +53,9 @@ function ScheduleContent() {
   const [data, setData] = useState<MonthScheduleDTO | null>(null);
   const [physicians, setPhysicians] = useState<PhysicianDTO[]>([]);
   const [view, setView] = useState<View>("day");
+  const [hospitalTab, setHospitalTab] = useState<HospitalTab>(
+    parseHospitalTab(search.get("hospital"))
+  );
   const [editing, setEditing] = useState<AssignmentDTO | null>(null);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -46,10 +73,21 @@ function ScheduleContent() {
     load();
   }, [load]);
 
+  const syncUrl = (y: number, m: number, tab: HospitalTab) => {
+    router.replace(
+      `/schedule?year=${y}&month=${m}&hospital=${tab.toLowerCase()}`
+    );
+  };
+
   const changeMonth = (y: number, m: number) => {
     setYear(y);
     setMonth(m);
-    router.replace(`/schedule?year=${y}&month=${m}`);
+    syncUrl(y, m, hospitalTab);
+  };
+
+  const changeHospital = (tab: HospitalTab) => {
+    setHospitalTab(tab);
+    syncUrl(year, month, tab);
   };
 
   const regenerate = async () => {
@@ -70,7 +108,11 @@ function ScheduleContent() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const assignments = data?.assignments ?? [];
+  const allAssignments = data?.assignments ?? [];
+  const combined = hospitalTab === "COMBINED";
+  const assignments = combined
+    ? allAssignments
+    : allAssignments.filter((a) => a.hospital === hospitalTab);
   const warnings = data?.lastRun?.warnings ?? [];
 
   return (
@@ -86,6 +128,22 @@ function ScheduleContent() {
         </div>
         <MonthPicker year={year} month={month} onChange={changeMonth} />
       </header>
+
+      <div className="mb-4 flex flex-wrap gap-1 border-b border-[#1e293b]">
+        {HOSPITAL_TABS.map((tab) => (
+          <button
+            key={tab}
+            onClick={() => changeHospital(tab)}
+            className={`-mb-px rounded-t-md border-b-2 px-3 py-2 text-sm font-medium transition ${
+              hospitalTab === tab
+                ? "border-cyan-400 text-cyan-300 shadow-[0_2px_10px_-4px_rgba(34,211,238,0.6)]"
+                : "border-transparent text-slate-400 hover:text-cyan-200"
+            }`}
+          >
+            {hospitalTabLabel(tab)}
+          </button>
+        ))}
+      </div>
 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div className="inline-flex rounded-lg border border-[#1e293b] bg-[#0f172a] p-0.5">
@@ -151,11 +209,24 @@ function ScheduleContent() {
 
       {assignments.length === 0 ? (
         <div className="rounded-xl border border-dashed border-[#1e293b] bg-[#0f172a] p-10 text-center text-slate-400">
-          No schedule for this month yet. Click <strong>Regenerate</strong> to
-          build one.
+          {allAssignments.length === 0 ? (
+            <>
+              No schedule for this month yet. Click <strong>Regenerate</strong>{" "}
+              to build one.
+            </>
+          ) : (
+            <>
+              No {hospitalTabLabel(hospitalTab)} shifts this month. Set its
+              rounder count on the Dashboard, then regenerate.
+            </>
+          )}
         </div>
       ) : view === "day" ? (
-        <DayView assignments={assignments} onEdit={setEditing} />
+        <DayView
+          assignments={assignments}
+          onEdit={setEditing}
+          showHospital={combined}
+        />
       ) : (
         <PhysicianView
           assignments={assignments}
@@ -185,9 +256,11 @@ function ScheduleContent() {
 function DayView({
   assignments,
   onEdit,
+  showHospital,
 }: {
   assignments: AssignmentDTO[];
   onEdit: (a: AssignmentDTO) => void;
+  showHospital: boolean;
 }) {
   const byDate = useMemo(() => groupByDate(assignments), [assignments]);
   return (
@@ -215,6 +288,7 @@ function DayView({
                   shiftType={a.shiftType}
                   rounderIndex={a.rounderIndex}
                   name={a.physicianName}
+                  hospital={showHospital ? a.hospital : undefined}
                 />
                 {a.isLocked && (
                   <span className="absolute -right-1 -top-1 text-[10px]">
@@ -450,7 +524,8 @@ function formatDate(iso: string): string {
 }
 
 function buildTSV(data: MonthScheduleDTO): string {
-  const byDate = groupByDate(data.assignments);
+  const mainAssignments = data.assignments.filter((a) => a.hospital === "MAIN");
+  const byDate = groupByDate(mainAssignments);
   const columns = scheduleColumns({
     rounderCount: data.rounderCount,
     dayAdmitCount: data.dayAdmitCount,

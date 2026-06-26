@@ -1,14 +1,20 @@
-import type { Prisma } from "@prisma/client";
+import type { Prisma, Hospital } from "@prisma/client";
 import type { AssignmentDTO } from "./api-types";
 import { prisma } from "./prisma";
 import {
   generateSlots,
+  generateCommunitySlots,
   runScheduler,
   toISODate,
   fromISODate,
   normalizeCoverage,
+  normalizeCommunityCoverage,
   DEFAULT_COVERAGE,
+  DEFAULT_COMMUNITY_COVERAGE,
+  COMMUNITY_HOSPITALS,
+  COMMUNITY_COUNT_KEY,
   type CoverageSettings,
+  type CommunityCoverage,
   type SchedulerPhysician,
   type ShiftSlot,
   type SchedulerResult,
@@ -45,6 +51,11 @@ export async function loadSchedulerPhysicians(): Promise<SchedulerPhysician[]> {
       shiftPreference: p.shiftPreference,
       nightEligible: p.nightEligible,
       adminEligible: p.adminEligible,
+      eligibleHospitals: new Set<Hospital>([
+        ...(p.canWorkCarson ? (["CARSON"] as const) : []),
+        ...(p.canWorkEaton ? (["EATON"] as const) : []),
+        ...(p.canWorkClinton ? (["CLINTON"] as const) : []),
+      ]),
       unavailableDates,
       preferredDates,
     };
@@ -58,12 +69,14 @@ export async function loadSchedulerPhysicians(): Promise<SchedulerPhysician[]> {
 export async function getOrCreateMonth(
   year: number,
   month: number,
-  coverage?: CoverageSettings
+  coverage?: CoverageSettings,
+  community?: CommunityCoverage
 ) {
+  const data = { ...(coverage ?? {}), ...(community ?? {}) };
   return prisma.scheduleMonth.upsert({
     where: { year_month: { year, month } },
-    update: coverage ? { ...coverage } : {},
-    create: { year, month, ...(coverage ?? {}) },
+    update: data,
+    create: { year, month, ...data },
   });
 }
 
@@ -76,15 +89,29 @@ export async function generateSchedule(
   year: number,
   month: number,
   allowOverMax = false,
-  coverage?: Partial<CoverageSettings>
+  coverage?: Partial<CoverageSettings>,
+  community?: Partial<CommunityCoverage>
 ): Promise<SchedulerResult> {
   const settings = coverage ? normalizeCoverage(coverage) : undefined;
-  const scheduleMonth = await getOrCreateMonth(year, month, settings);
+  const communitySettings = community
+    ? normalizeCommunityCoverage(community)
+    : undefined;
+  const scheduleMonth = await getOrCreateMonth(
+    year,
+    month,
+    settings,
+    communitySettings
+  );
   const activeCoverage: CoverageSettings = {
     rounderCount: scheduleMonth.rounderCount,
     dayAdmitCount: scheduleMonth.dayAdmitCount,
     nightAdmit1Count: scheduleMonth.nightAdmit1Count,
     nightAdmit2Count: scheduleMonth.nightAdmit2Count,
+  };
+  const activeCommunity: CommunityCoverage = {
+    carsonRounderCount: scheduleMonth.carsonRounderCount,
+    eatonRounderCount: scheduleMonth.eatonRounderCount,
+    clintonRounderCount: scheduleMonth.clintonRounderCount,
   };
   const run = await prisma.scheduleGenerationRun.create({
     data: { scheduleMonthId: scheduleMonth.id },
@@ -99,14 +126,25 @@ export async function generateSchedule(
   const preserved = new Map<string, (typeof existing)[number]>();
   for (const a of existing) {
     if (a.isLocked || a.isManual) {
-      preserved.set(slotKey(toISODate(a.date), a.shiftType, a.rounderIndex), a);
+      preserved.set(
+        slotKey(toISODate(a.date), a.hospital, a.shiftType, a.rounderIndex),
+        a
+      );
     }
   }
 
-  // Build the slot grid, seeding preserved assignments.
-  const slots: ShiftSlot[] = generateSlots(year, month, activeCoverage).map((slot) => {
+  // Build the slot grid: main hospital + each community hospital's rounders.
+  const rawSlots: ShiftSlot[] = [
+    ...generateSlots(year, month, activeCoverage),
+    ...COMMUNITY_HOSPITALS.flatMap((h) =>
+      generateCommunitySlots(year, month, h, activeCommunity[COMMUNITY_COUNT_KEY[h]])
+    ),
+  ];
+
+  // Seed preserved assignments onto matching slots.
+  const slots: ShiftSlot[] = rawSlots.map((slot) => {
     const keep = preserved.get(
-      slotKey(slot.date, slot.shiftType, slot.rounderIndex)
+      slotKey(slot.date, slot.hospital, slot.shiftType, slot.rounderIndex)
     );
     if (keep) {
       return {
@@ -132,6 +170,7 @@ export async function generateSchedule(
         date: fromISODate(a.date),
         endDate: fromISODate(a.endDate),
         shiftType: a.shiftType,
+        hospital: a.hospital,
         rounderIndex: a.rounderIndex,
         startTime: a.startTime,
         endTime: a.endTime,
@@ -190,6 +229,9 @@ export async function getMonthSchedule(year: number, month: number) {
       dayAdmitCount: DEFAULT_COVERAGE.dayAdmitCount,
       nightAdmit1Count: DEFAULT_COVERAGE.nightAdmit1Count,
       nightAdmit2Count: DEFAULT_COVERAGE.nightAdmit2Count,
+      carsonRounderCount: DEFAULT_COMMUNITY_COVERAGE.carsonRounderCount,
+      eatonRounderCount: DEFAULT_COMMUNITY_COVERAGE.eatonRounderCount,
+      clintonRounderCount: DEFAULT_COMMUNITY_COVERAGE.clintonRounderCount,
       assignments: [] as AssignmentDTO[],
       lastRun: null,
     };
@@ -200,6 +242,7 @@ export async function getMonthSchedule(year: number, month: number) {
     date: toISODate(a.date),
     endDate: toISODate(a.endDate),
     shiftType: a.shiftType,
+    hospital: a.hospital,
     rounderIndex: a.rounderIndex,
     startTime: a.startTime,
     endTime: a.endTime,
@@ -220,6 +263,9 @@ export async function getMonthSchedule(year: number, month: number) {
     dayAdmitCount: scheduleMonth.dayAdmitCount,
     nightAdmit1Count: scheduleMonth.nightAdmit1Count,
     nightAdmit2Count: scheduleMonth.nightAdmit2Count,
+    carsonRounderCount: scheduleMonth.carsonRounderCount,
+    eatonRounderCount: scheduleMonth.eatonRounderCount,
+    clintonRounderCount: scheduleMonth.clintonRounderCount,
     assignments,
     lastRun: scheduleMonth.runs[0] ?? null,
   };
@@ -229,8 +275,9 @@ export type MonthSchedule = Awaited<ReturnType<typeof getMonthSchedule>>;
 
 function slotKey(
   date: string,
+  hospital: string,
   shiftType: string,
   rounderIndex: number | null
 ): string {
-  return `${date}|${shiftType}|${rounderIndex ?? 0}`;
+  return `${date}|${hospital}|${shiftType}|${rounderIndex ?? 0}`;
 }

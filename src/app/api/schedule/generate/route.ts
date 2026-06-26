@@ -32,6 +32,25 @@ export async function POST(req: Request) {
       }
     : undefined;
 
-  const result = await generateSchedule(year, month, allowOverMax, coverage);
+  const hasCommunity =
+    body.carsonRounderCount !== undefined ||
+    body.eatonRounderCount !== undefined ||
+    body.clintonRounderCount !== undefined;
+
+  const community = hasCommunity
+    ? {
+        carsonRounderCount: body.carsonRounderCount,
+        eatonRounderCount: body.eatonRounderCount,
+        clintonRounderCount: body.clintonRounderCount,
+      }
+    : undefined;
+
+  const result = await generateSchedule(
+    year,
+    month,
+    allowOverMax,
+    coverage,
+    community
+  );
   return NextResponse.json(result);
 }

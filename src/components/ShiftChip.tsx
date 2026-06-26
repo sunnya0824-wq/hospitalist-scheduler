@@ -1,16 +1,19 @@
-import type { ShiftType } from "@prisma/client";
-import { SHIFT_STYLES } from "@/lib/shift-style";
+import type { ShiftType, Hospital } from "@prisma/client";
+import { SHIFT_STYLES, getHospitalBadge } from "@/lib/shift-style";
 
 export function ShiftChip({
   shiftType,
   rounderIndex,
   name,
   empty,
+  hospital,
 }: {
   shiftType: ShiftType;
   rounderIndex?: number | null;
   name?: string | null;
   empty?: boolean;
+  /** When provided (and not MAIN), shows a small hospital badge on the chip. */
+  hospital?: Hospital;
 }) {
   const style = SHIFT_STYLES[shiftType];
   const label =
@@ -26,12 +29,23 @@ export function ShiftChip({
     );
   }
 
+  const badge =
+    hospital && hospital !== "MAIN" ? getHospitalBadge(hospital) : null;
+
   return (
     <span
       className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-xs font-medium ${style.chip}`}
     >
       <span className={`h-1.5 w-1.5 rounded-full ${style.dot}`} />
       {name}
+      {badge && (
+        <span
+          className={`ml-1 rounded-sm border px-1 text-[9px] font-semibold uppercase leading-tight ${badge.badge}`}
+          title={badge.label}
+        >
+          {badge.short}
+        </span>
+      )}
     </span>
   );
 }

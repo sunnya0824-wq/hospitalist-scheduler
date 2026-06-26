@@ -4,18 +4,26 @@ import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { MonthPicker } from "@/components/MonthPicker";
 import { ShiftLegend } from "@/components/ShiftChip";
-import { MONTH_NAMES } from "@/lib/shift-style";
+import { MONTH_NAMES, getHospitalBadge } from "@/lib/shift-style";
 import { daysInMonth } from "@/lib/scheduler/dates";
 import {
   DEFAULT_COVERAGE,
+  DEFAULT_COMMUNITY_COVERAGE,
   normalizeCoverage,
+  normalizeCommunityCoverage,
   totalDailySlots,
+  COMMUNITY_HOSPITALS,
+  COMMUNITY_COUNT_KEY,
   type CoverageSettings,
+  type CommunityCoverage,
 } from "@/lib/scheduler/shifts";
 import { fetchMonth, generateMonth } from "@/lib/client";
 import type { MonthScheduleDTO } from "@/lib/api-types";
+import type { Hospital } from "@prisma/client";
 
 const COVERAGE_STORAGE_KEY = "hs.coverage";
+const communityKey = (h: string) =>
+  `coverage.community.${h.toLowerCase()}.rounders`;
 
 function loadStoredCoverage(): CoverageSettings {
   if (typeof window === "undefined") return DEFAULT_COVERAGE;
@@ -28,6 +36,19 @@ function loadStoredCoverage(): CoverageSettings {
   }
 }
 
+function loadStoredCommunity(): CommunityCoverage {
+  if (typeof window === "undefined") return DEFAULT_COMMUNITY_COVERAGE;
+  const read = (h: string) => {
+    const v = Number(window.localStorage.getItem(communityKey(h)));
+    return Number.isFinite(v) ? v : 0;
+  };
+  return normalizeCommunityCoverage({
+    carsonRounderCount: read("CARSON"),
+    eatonRounderCount: read("EATON"),
+    clintonRounderCount: read("CLINTON"),
+  });
+}
+
 export default function DashboardPage() {
   const now = new Date();
   const [year, setYear] = useState(now.getUTCFullYear());
@@ -37,10 +58,14 @@ export default function DashboardPage() {
   const [generating, setGenerating] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [coverage, setCoverage] = useState<CoverageSettings>(DEFAULT_COVERAGE);
+  const [community, setCommunity] = useState<CommunityCoverage>(
+    DEFAULT_COMMUNITY_COVERAGE
+  );
 
   // Hydrate coverage inputs from localStorage after mount (SSR-safe).
   useEffect(() => {
     setCoverage(loadStoredCoverage());
+    setCommunity(loadStoredCommunity());
   }, []);
 
   const load = useCallback(async () => {
@@ -70,24 +95,54 @@ export default function DashboardPage() {
     });
   };
 
+  const setCommunityCount = (
+    hospital: (typeof COMMUNITY_HOSPITALS)[number],
+    value: number
+  ) => {
+    const key = COMMUNITY_COUNT_KEY[hospital];
+    setCommunity((c) => {
+      const next = { ...c, [key]: Number.isFinite(value) ? value : 0 };
+      try {
+        window.localStorage.setItem(
+          communityKey(hospital),
+          String(next[key])
+        );
+      } catch {
+        /* ignore quota / private-mode errors */
+      }
+      return next;
+    });
+  };
+
+  const communityPerDay =
+    community.carsonRounderCount +
+    community.eatonRounderCount +
+    community.clintonRounderCount;
   const totalPerDay = totalDailySlots(coverage);
   const numDays = daysInMonth(year, month);
-  const projectedAssignments = numDays * totalPerDay;
+  const projectedAssignments = numDays * (totalPerDay + communityPerDay);
 
   const onGenerate = async () => {
     setGenerating(true);
     setMessage(null);
     try {
       const settings = normalizeCoverage(coverage);
+      const communitySettings = normalizeCommunityCoverage(community);
       try {
         window.localStorage.setItem(
           COVERAGE_STORAGE_KEY,
           JSON.stringify(settings)
         );
+        for (const h of COMMUNITY_HOSPITALS) {
+          window.localStorage.setItem(
+            communityKey(h),
+            String(communitySettings[COMMUNITY_COUNT_KEY[h]])
+          );
+        }
       } catch {
         /* ignore */
       }
-      await generateMonth(year, month, false, settings);
+      await generateMonth(year, month, false, settings, communitySettings);
       await load();
       setMessage("Schedule generated.");
     } catch (e) {
@@ -132,7 +187,11 @@ export default function DashboardPage() {
       </header>
 
       <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
-        <StatCard label="Total slots" value={total} hint={`${totalPerDay} / day`} />
+        <StatCard
+          label="Total slots"
+          value={total}
+          hint={`${totalPerDay + communityPerDay} / day`}
+        />
         <StatCard label="Filled" value={filled} accent="text-emerald-400" />
         <StatCard
           label="Coverage gaps"
@@ -183,6 +242,33 @@ export default function DashboardPage() {
         </div>
         <p className="mt-4 text-sm font-medium text-cyan-300">
           Total slots per day = {totalPerDay}
+        </p>
+      </div>
+
+      <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] transition hover:border-cyan-900/40 p-5">
+        <h2 className="font-semibold">Community hospitals</h2>
+        <p className="text-sm text-slate-400">
+          Rounding-only locations. Set how many rounders to fill per day at each
+          community hospital (0 disables it). Only physicians flagged eligible
+          are scheduled there.
+        </p>
+        <div className="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+          {COMMUNITY_HOSPITALS.map((h) => {
+            const badge = getHospitalBadge(h as Hospital);
+            return (
+              <CountField
+                key={h}
+                label={badge.label}
+                value={community[COMMUNITY_COUNT_KEY[h]]}
+                min={0}
+                max={20}
+                onChange={(v) => setCommunityCount(h, v)}
+              />
+            );
+          })}
+        </div>
+        <p className="mt-4 text-sm font-medium text-cyan-300">
+          Community rounders per day = {communityPerDay}
         </p>
       </div>
 

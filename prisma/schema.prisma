@@ -18,6 +18,13 @@ enum ShiftType {
   NIGHT_ADMIT_2
 }
 
+enum Hospital {
+  MAIN
+  CARSON
+  EATON
+  CLINTON
+}
+
 enum ShiftPreference {
   MORE
   FEWER
@@ -51,6 +58,9 @@ model Physician {
   shiftPreference ShiftPreference @default(NEUTRAL)
   nightEligible  Boolean         @default(true)
   adminEligible  Boolean         @default(true)
+  canWorkCarson  Boolean         @default(false)
+  canWorkEaton   Boolean         @default(false)
+  canWorkClinton Boolean         @default(false)
   notes          String?
 
   availability   PhysicianAvailability[]
@@ -70,6 +80,9 @@ model ScheduleMonth {
   dayAdmitCount    Int          @default(1)  // 0-3 ADMIN slots/day
   nightAdmit1Count Int          @default(1)  // 0-2 NIGHT_ADMIT_1 slots/day
   nightAdmit2Count Int          @default(1)  // 0-2 NIGHT_ADMIT_2 slots/day
+  carsonRounderCount  Int       @default(0)  // ROUNDER slots/day at Sparrow Carson
+  eatonRounderCount   Int       @default(0)  // ROUNDER slots/day at Sparrow Eaton
+  clintonRounderCount Int       @default(0)  // ROUNDER slots/day at Sparrow Clinton
   createdAt    DateTime         @default(now())
   generatedAt  DateTime?
 
@@ -87,6 +100,7 @@ model ShiftAssignment {
   date            DateTime // the calendar day the shift starts (date-only, midnight UTC)
   endDate         DateTime // the calendar day the shift ends (night shifts cross midnight)
   shiftType       ShiftType
+  hospital        Hospital      @default(MAIN)
   rounderIndex    Int? // 1-10 for ROUNDER slots
   startTime       String // e.g. "07:00"
   endTime         String // e.g. "17:00"

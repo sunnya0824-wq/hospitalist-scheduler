@@ -5,7 +5,8 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { MonthPicker } from "@/components/MonthPicker";
 import { ShiftChip } from "@/components/ShiftChip";
-import { MONTH_NAMES, SHIFT_STYLES } from "@/lib/shift-style";
+import { MONTH_NAMES, SHIFT_STYLES, getHospitalBadge } from "@/lib/shift-style";
+import { HOSPITALS, COMMUNITY_HOSPITALS } from "@/lib/scheduler/shifts";
 import { daysInMonth, isWeekend, toISODate, utcDate } from "@/lib/scheduler/dates";
 import { fetchMonth, fetchPhysicians } from "@/lib/client";
 import type {
@@ -96,6 +97,14 @@ function PhysicianDetailContent() {
     return c;
   }, [mine]);
 
+  const byHospital = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const a of mine) map.set(a.hospital, (map.get(a.hospital) ?? 0) + 1);
+    return HOSPITALS.map((h) => ({ hospital: h, count: map.get(h) ?? 0 })).filter(
+      (r) => r.count > 0
+    );
+  }, [mine]);
+
   const scheduleExists =
     Boolean(data?.lastRun) || (data?.assignments.length ?? 0) > 0;
 
@@ -156,6 +165,24 @@ function PhysicianDetailContent() {
                 Day admitting eligible
               </span>
             )}
+            {COMMUNITY_HOSPITALS.filter(
+              (h) =>
+                ({
+                  CARSON: physician.canWorkCarson,
+                  EATON: physician.canWorkEaton,
+                  CLINTON: physician.canWorkClinton,
+                }[h])
+            ).map((h) => {
+              const badge = getHospitalBadge(h);
+              return (
+                <span
+                  key={h}
+                  className={`rounded-md border px-2 py-0.5 text-xs font-medium ${badge.badge}`}
+                >
+                  {badge.label}
+                </span>
+              );
+            })}
           </div>
         </div>
         <MonthPicker
@@ -205,6 +232,30 @@ function PhysicianDetailContent() {
                 belowMin || aboveMax ? "text-rose-400" : "text-emerald-400"
               }
             />
+          </div>
+
+          <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] p-5">
+            <h2 className="mb-3 font-semibold uppercase tracking-wide text-slate-200">
+              By hospital
+            </h2>
+            {byHospital.length === 0 ? (
+              <p className="text-sm text-slate-400">No assignments this month.</p>
+            ) : (
+              <div className="flex flex-wrap gap-2">
+                {byHospital.map(({ hospital, count }) => {
+                  const badge = getHospitalBadge(hospital);
+                  return (
+                    <span
+                      key={hospital}
+                      className={`inline-flex items-center gap-2 rounded-md border px-3 py-1 text-sm font-medium ${badge.badge}`}
+                    >
+                      {badge.label}
+                      <span className="font-bold">{count}</span>
+                    </span>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           <CalendarGrid
@@ -333,6 +384,7 @@ function AssignmentTable({ assignments }: { assignments: AssignmentDTO[] }) {
                     shiftType={a.shiftType}
                     rounderIndex={a.rounderIndex}
                     name={a.physicianName}
+                    hospital={a.hospital}
                   />
                 </td>
                 <td className="px-4 py-2 text-slate-400">

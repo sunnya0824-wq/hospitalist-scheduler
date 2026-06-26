@@ -1,8 +1,59 @@
-import type { ShiftType } from "@prisma/client";
+import type { ShiftType, Hospital } from "@prisma/client";
 import type { ShiftSlot } from "./types";
 import { addDaysISO, monthDates } from "./dates";
 
 export const ROUNDER_COUNT = 10;
+
+/** Community (rounding-only) hospitals, in display order. MAIN is handled separately. */
+export const COMMUNITY_HOSPITALS = ["CARSON", "EATON", "CLINTON"] as const;
+export type CommunityHospital = (typeof COMMUNITY_HOSPITALS)[number];
+
+/** All hospitals including MAIN, in display order. */
+export const HOSPITALS: Hospital[] = ["MAIN", "CARSON", "EATON", "CLINTON"];
+
+/** Human-friendly hospital names. */
+export const HOSPITAL_LABELS: Record<Hospital, string> = {
+  MAIN: "Main Hospital",
+  CARSON: "Sparrow Carson",
+  EATON: "Sparrow Eaton",
+  CLINTON: "Sparrow Clinton",
+};
+
+/** Per-hospital rounder-count-per-day for the three community hospitals. */
+export interface CommunityCoverage {
+  carsonRounderCount: number;
+  eatonRounderCount: number;
+  clintonRounderCount: number;
+}
+
+export const DEFAULT_COMMUNITY_COVERAGE: CommunityCoverage = {
+  carsonRounderCount: 0,
+  eatonRounderCount: 0,
+  clintonRounderCount: 0,
+};
+
+/** Map a community hospital to its ScheduleMonth count field name. */
+export const COMMUNITY_COUNT_KEY: Record<CommunityHospital, keyof CommunityCoverage> = {
+  CARSON: "carsonRounderCount",
+  EATON: "eatonRounderCount",
+  CLINTON: "clintonRounderCount",
+};
+
+/** Clamp incoming community rounder counts to 0-20, applying defaults. */
+export function normalizeCommunityCoverage(
+  input: Partial<CommunityCoverage> | null | undefined
+): CommunityCoverage {
+  const clamp = (v: unknown, def: number) => {
+    const n = Math.round(Number(v));
+    if (!Number.isFinite(n)) return def;
+    return Math.min(20, Math.max(0, n));
+  };
+  return {
+    carsonRounderCount: clamp(input?.carsonRounderCount, 0),
+    eatonRounderCount: clamp(input?.eatonRounderCount, 0),
+    clintonRounderCount: clamp(input?.clintonRounderCount, 0),
+  };
+}
 
 /** Per-month adjustable daily coverage counts. */
 export interface CoverageSettings {
@@ -191,9 +242,41 @@ export function generateSlots(
         date,
         endDate: addDaysISO(date, def.endOffset),
         shiftType: def.shiftType,
+        hospital: "MAIN",
         rounderIndex: def.rounderIndex,
         startTime: def.startTime,
         endTime: def.endTime,
+        physicianId: null,
+        isLocked: false,
+        isManual: false,
+      });
+    }
+  }
+  return slots;
+}
+
+/**
+ * Generate rounder-only slots for one community hospital. Each day gets
+ * `rounderCount` ROUNDER slots (07:00–17:00), indexed 1..rounderCount.
+ */
+export function generateCommunitySlots(
+  year: number,
+  month: number,
+  hospital: CommunityHospital,
+  rounderCount: number
+): ShiftSlot[] {
+  const slots: ShiftSlot[] = [];
+  if (rounderCount <= 0) return slots;
+  for (const date of monthDates(year, month)) {
+    for (let i = 0; i < rounderCount; i++) {
+      slots.push({
+        date,
+        endDate: date,
+        shiftType: "ROUNDER",
+        hospital,
+        rounderIndex: i + 1,
+        startTime: "07:00",
+        endTime: "17:00",
         physicianId: null,
         isLocked: false,
         isManual: false,

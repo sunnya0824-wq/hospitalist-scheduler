@@ -4,6 +4,19 @@ import { useEffect, useState } from "react";
 import Link from "next/link";
 import { fetchPhysicians } from "@/lib/client";
 import type { PhysicianDTO } from "@/lib/api-types";
+import { getHospitalBadge } from "@/lib/shift-style";
+import { COMMUNITY_HOSPITALS } from "@/lib/scheduler/shifts";
+import type { Hospital } from "@prisma/client";
+
+/** Map a community hospital to its physician eligibility flag. */
+const ELIGIBILITY_FLAG: Record<
+  (typeof COMMUNITY_HOSPITALS)[number],
+  "canWorkCarson" | "canWorkEaton" | "canWorkClinton"
+> = {
+  CARSON: "canWorkCarson",
+  EATON: "canWorkEaton",
+  CLINTON: "canWorkClinton",
+};
 
 type Draft = Partial<PhysicianDTO> & {
   unavailableText?: string;
@@ -25,6 +38,9 @@ const EMPTY: Draft = {
   shiftPreference: "NEUTRAL",
   nightEligible: true,
   adminEligible: true,
+  canWorkCarson: false,
+  canWorkEaton: false,
+  canWorkClinton: false,
   notes: "",
   unavailableText: "",
   preferredText: "",
@@ -161,6 +177,22 @@ export default function PhysiciansPage() {
                 <td className="px-4 py-2">
                   <span className={`font-medium ${!p.active ? "text-slate-500" : "text-slate-200"}`}>
                     {p.fullName}
+                  </span>
+                  <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">
+                    {COMMUNITY_HOSPITALS.filter((h) => p[ELIGIBILITY_FLAG[h]]).map(
+                      (h) => {
+                        const badge = getHospitalBadge(h as Hospital);
+                        return (
+                          <span
+                            key={h}
+                            className={`rounded-sm border px-1 text-[9px] font-semibold uppercase leading-tight ${badge.badge}`}
+                            title={`Eligible: ${badge.label}`}
+                          >
+                            {badge.short}
+                          </span>
+                        );
+                      }
+                    )}
                   </span>
                 </td>
                 <td className="px-4 py-2">
@@ -362,6 +394,19 @@ function PhysicianForm({
             />
             Day admitting eligible
           </label>
+          {COMMUNITY_HOSPITALS.map((h) => {
+            const flag = ELIGIBILITY_FLAG[h];
+            return (
+              <label key={h} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={(form[flag] as boolean) ?? false}
+                  onChange={(e) => set(flag, e.target.checked)}
+                />
+                {getHospitalBadge(h as Hospital).label}
+              </label>
+            );
+          })}
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"

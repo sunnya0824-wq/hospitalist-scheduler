@@ -19,6 +19,9 @@ export interface SeedPhysician {
   shiftPreference: ShiftPreference;
   nightEligible: boolean;
   adminEligible: boolean;
+  canWorkCarson?: boolean;
+  canWorkEaton?: boolean;
+  canWorkClinton?: boolean;
   notes?: string;
   unavailableDates?: string[];
   preferredDates?: string[];
@@ -58,12 +61,20 @@ function physician(
 
 export const SEED_PHYSICIANS: SeedPhysician[] = [
   // --- 5 standard @ 14 shifts/mo ------------------------------------------
-  physician("Dr. Amara Okafor", 14),
-  physician("Dr. Benjamin Cho", 14, { shiftPreference: "MORE" }),
+  physician("Dr. Amara Okafor", 14, { canWorkCarson: true }),
+  physician("Dr. Benjamin Cho", 14, {
+    shiftPreference: "MORE",
+    canWorkCarson: true,
+    canWorkEaton: true,
+  }),
   physician("Dr. Carla Mendez", 14, {
     preferredDates: [d(5), d(6), d(12)],
+    canWorkEaton: true,
   }),
-  physician("Dr. Daniel Reyes", 14, { unavailableDates: [d(2), d(3)] }),
+  physician("Dr. Daniel Reyes", 14, {
+    unavailableDates: [d(2), d(3)],
+    canWorkClinton: true,
+  }),
   physician("Dr. Elena Vasquez", 14, {
     shiftPreference: "FEWER",
     adminEligible: false,
@@ -79,7 +90,10 @@ export const SEED_PHYSICIANS: SeedPhysician[] = [
     adminEligible: false,
     unavailableDates: [d(8), d(9), d(10)],
   }),
-  physician("Dr. Idris Mohamed", 12),
+  physician("Dr. Idris Mohamed", 12, {
+    canWorkCarson: true,
+    canWorkClinton: true,
+  }),
 
   // --- 4 high-load @ 18 shifts/mo -----------------------------------------
   physician("Dr. Julia Novak", 18, { shiftPreference: "MORE" }),
@@ -121,6 +135,8 @@ export const SEED_PHYSICIANS: SeedPhysician[] = [
     adminEligible: false,
     notes: "Rounding only.",
     unavailableDates: [d(15), d(16)],
+    canWorkEaton: true,
+    canWorkClinton: true,
   }),
   physician("Dr. Tessa Lindqvist", 14, {
     nightEligible: true,

@@ -59,6 +59,10 @@ body {
 .print-light {
   background: #fff !important;
 }
+.print-page-break {
+  break-before: page;
+  page-break-before: always;
+}
 
 @media print {
   .no-print {

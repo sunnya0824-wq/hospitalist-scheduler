@@ -1,4 +1,3 @@
-import type { ShiftType } from "@prisma/client";
 import type {
   AssignmentResult,
   PhysicianStats,
@@ -70,6 +69,10 @@ function hardConstraintViolation(
   }
   if (slot.shiftType === "ADMIN" && !phys.adminEligible) {
     return "not admin eligible";
+  }
+  // Community-hospital eligibility (MAIN is implicit for all active physicians).
+  if (slot.hospital !== "MAIN" && !phys.eligibleHospitals.has(slot.hospital)) {
+    return "not eligible for this hospital";
   }
   // Respect the hard cap unless the run overrides it.
   if (!opts.allowOverMax && tally.total >= phys.maxShifts) {
@@ -174,11 +177,16 @@ function applyAssignment(tally: Tally, slot: ShiftSlot): void {
   }
 }
 
-/** Order slots so the most constrained shift types are filled first. */
-function slotPriority(type: ShiftType): number {
-  if (isNightType(type)) return 0;
-  if (type === "ADMIN") return 1;
-  return 2; // ROUNDER
+/**
+ * Order slots so the most constrained shift types are filled first. The main
+ * hospital is fully scheduled (nights → admin → rounders) before community
+ * hospital rounders, so a physician's main-hospital duty takes precedence.
+ */
+function slotPriority(slot: ShiftSlot): number {
+  if (slot.hospital !== "MAIN") return 3; // community rounders last
+  if (isNightType(slot.shiftType)) return 0;
+  if (slot.shiftType === "ADMIN") return 1;
+  return 2; // main ROUNDER
 }
 
 /**
@@ -218,8 +226,8 @@ export function runScheduler(
   const open = slots
     .filter((s) => !s.physicianId)
     .sort((a, b) => {
-      const pa = slotPriority(a.shiftType);
-      const pb = slotPriority(b.shiftType);
+      const pa = slotPriority(a);
+      const pb = slotPriority(b);
       if (pa !== pb) return pa - pb;
       if (a.date !== b.date) return a.date < b.date ? -1 : 1;
       return (a.rounderIndex ?? 0) - (b.rounderIndex ?? 0);
@@ -268,8 +276,8 @@ export function runScheduler(
   // Restore deterministic ordering for storage/display (by date then slot).
   results.sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? -1 : 1;
-    const pa = slotPriority(a.shiftType);
-    const pb = slotPriority(b.shiftType);
+    const pa = slotPriority(a);
+    const pb = slotPriority(b);
     if (pa !== pb) return pb - pa; // rounders before admin/nights in display
     return (a.rounderIndex ?? 0) - (b.rounderIndex ?? 0);
   });

@@ -18,16 +18,29 @@ export interface CoverageInput {
   nightAdmit2Count?: number;
 }
 
+export interface CommunityCoverageInput {
+  carsonRounderCount?: number;
+  eatonRounderCount?: number;
+  clintonRounderCount?: number;
+}
+
 export async function generateMonth(
   year: number,
   month: number,
   allowOverMax = false,
-  coverage?: CoverageInput
+  coverage?: CoverageInput,
+  community?: CommunityCoverageInput
 ): Promise<void> {
   const res = await fetch("/api/schedule/generate", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ year, month, allowOverMax, ...(coverage ?? {}) }),
+    body: JSON.stringify({
+      year,
+      month,
+      allowOverMax,
+      ...(coverage ?? {}),
+      ...(community ?? {}),
+    }),
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({}));
