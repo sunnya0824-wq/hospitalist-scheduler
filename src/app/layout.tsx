@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { Sidebar } from "@/components/Sidebar";
 
@@ -6,6 +6,11 @@ export const metadata: Metadata = {
   title: "Hospitalist Scheduler",
   description:
     "Generate fair, constraint-aware monthly hospitalist coverage schedules.",
+};
+
+export const viewport: Viewport = {
+  width: "device-width",
+  initialScale: 1,
 };
 
 export default function RootLayout({

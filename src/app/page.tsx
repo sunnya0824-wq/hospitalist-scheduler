@@ -229,7 +229,7 @@ export default function DashboardPage() {
         </div>
       )}
 
-      <div className="mb-6 grid grid-cols-2 gap-4 sm:grid-cols-4">
+      <div className="mb-6 grid grid-cols-2 gap-4 md:grid-cols-4">
         <StatCard
           label="Total slots"
           value={total}
@@ -343,7 +343,7 @@ export default function DashboardPage() {
           <button
             onClick={onGenerate}
             disabled={generating}
-            className="rounded-lg border border-cyan-400 bg-cyan-500/15 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-200 transition hover:bg-cyan-500/25 hover:shadow-[0_0_18px_rgba(34,211,238,0.55)] disabled:opacity-50"
+            className="w-full min-h-[44px] rounded-lg border border-cyan-400 bg-cyan-500/15 px-4 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-200 transition hover:bg-cyan-500/25 hover:shadow-[0_0_18px_rgba(34,211,238,0.55)] disabled:opacity-50 md:w-auto md:min-h-0"
           >
             {generating ? "Generating…" : "Generate Schedule"}
           </button>
@@ -355,23 +355,23 @@ export default function DashboardPage() {
 
       <Card className="mb-6">
         <CardHeader title="Exports" />
-        <div className="flex flex-wrap gap-2">
-          <a href={exportHref("csv")} className={SECONDARY_BTN}>
+        <div className="flex snap-x gap-2 overflow-x-auto [&>*]:shrink-0 md:flex-wrap md:overflow-visible">
+          <a href={exportHref("csv")} className={`${SECONDARY_BTN} snap-start`}>
             <DownloadIcon className="h-3.5 w-3.5" />
             CSV
           </a>
-          <a href={exportHref("xlsx")} className={SECONDARY_BTN}>
+          <a href={exportHref("xlsx")} className={`${SECONDARY_BTN} snap-start`}>
             <DownloadIcon className="h-3.5 w-3.5" />
             XLSX
           </a>
           <Link
             href={`/schedule/print?year=${year}&month=${month}`}
-            className={SECONDARY_BTN}
+            className={`${SECONDARY_BTN} snap-start`}
           >
             <PrinterIcon className="h-3.5 w-3.5" />
             Print view
           </Link>
-          <Link href="/schedule" className={SECONDARY_BTN}>
+          <Link href="/schedule" className={`${SECONDARY_BTN} snap-start`}>
             <GridIcon className="h-3.5 w-3.5" />
             Open schedule
           </Link>
@@ -422,6 +422,7 @@ function CountField({
   max: number;
   onChange: (value: number) => void;
 }) {
+  const clamp = (n: number) => Math.min(max, Math.max(min, Math.round(n)));
   return (
     <label className="block">
       <span className="text-xs font-medium text-slate-300">
@@ -430,18 +431,38 @@ function CountField({
           ({min}–{max})
         </span>
       </span>
-      <input
-        type="number"
-        min={min}
-        max={max}
-        value={value}
-        onChange={(e) => {
-          const n = Number(e.target.value);
-          if (!Number.isFinite(n)) return;
-          onChange(Math.min(max, Math.max(min, Math.round(n))));
-        }}
-        className="mt-0.5 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1.5 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
-      />
+      <div className="mt-0.5 flex items-stretch gap-1">
+        <button
+          type="button"
+          aria-label={`Decrease ${label}`}
+          onClick={() => onChange(clamp(value - 1))}
+          className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-cyan-400/50 bg-cyan-500/10 text-lg font-bold text-cyan-300 transition hover:bg-cyan-500/20 disabled:opacity-40 md:hidden"
+          disabled={value <= min}
+        >
+          −
+        </button>
+        <input
+          type="number"
+          min={min}
+          max={max}
+          value={value}
+          onChange={(e) => {
+            const n = Number(e.target.value);
+            if (!Number.isFinite(n)) return;
+            onChange(clamp(n));
+          }}
+          className="w-full min-w-0 rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1.5 text-center text-sm tabular-nums text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50 md:text-left"
+        />
+        <button
+          type="button"
+          aria-label={`Increase ${label}`}
+          onClick={() => onChange(clamp(value + 1))}
+          className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-cyan-400/50 bg-cyan-500/10 text-lg font-bold text-cyan-300 transition hover:bg-cyan-500/20 disabled:opacity-40 md:hidden"
+          disabled={value >= max}
+        >
+          +
+        </button>
+      </div>
     </label>
   );
 }
@@ -495,7 +516,7 @@ function StatCard({
         <Icon className={`h-3.5 w-3.5 ${a.text}`} />
         {label}
       </div>
-      <div className={`mt-1 text-5xl font-bold tabular-nums ${a.text} ${a.glow}`}>
+      <div className={`mt-1 text-3xl font-bold tabular-nums md:text-5xl ${a.text} ${a.glow}`}>
         {value}
       </div>
       {bar !== undefined && (

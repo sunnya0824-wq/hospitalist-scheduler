@@ -58,7 +58,7 @@ export function ShiftLegend() {
     "NIGHT_ADMIT_2",
   ];
   return (
-    <div className="flex flex-wrap gap-3">
+    <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap">
       {types.map((t) => (
         <span key={t} className="flex items-center gap-1.5 text-xs text-slate-400">
           <span className={`h-3 w-3 rounded ${SHIFT_STYLES[t].dot}`} />

@@ -7,12 +7,15 @@ import { MonthPicker } from "@/components/MonthPicker";
 import { ShiftChip, ShiftLegend } from "@/components/ShiftChip";
 import { SECONDARY_BTN } from "@/components/Card";
 import {
+  AlertTriangleIcon,
   CalendarIcon,
   CopyIcon,
   DownloadIcon,
+  LockIcon,
+  MoreIcon,
   PrinterIcon,
 } from "@/components/icons";
-import { MONTH_NAMES, getHospitalBadge } from "@/lib/shift-style";
+import { MONTH_NAMES, SHIFT_STYLES, getHospitalBadge } from "@/lib/shift-style";
 import { scheduleColumns, HOSPITALS } from "@/lib/scheduler/shifts";
 import { addDaysISO, isWeekend } from "@/lib/scheduler/dates";
 import { isHoliday, holidayName } from "@/lib/holidays";
@@ -205,30 +208,34 @@ function ScheduleContent() {
 
   return (
     <div className="mx-auto max-w-6xl">
-      <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 className="page-title">Schedule</h1>
-          <p className="mt-1 text-sm text-slate-400">
-            {MONTH_NAMES[month - 1]} {year}
-          </p>
-        </div>
-        <MonthPicker year={year} month={month} onChange={changeMonth} />
-      </header>
+      <div className="sticky top-0 z-20 -mx-4 bg-slate-950/95 px-4 pt-1 backdrop-blur-md md:static md:mx-0 md:bg-transparent md:px-0 md:pt-0 md:backdrop-blur-none">
+        <header className="mb-4 flex flex-col gap-3 md:mb-6 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-4">
+          <div>
+            <h1 className="page-title">Schedule</h1>
+            <p className="mt-1 text-sm text-slate-400">
+              {MONTH_NAMES[month - 1]} {year}
+            </p>
+          </div>
+          <div className="w-full md:w-auto">
+            <MonthPicker year={year} month={month} onChange={changeMonth} />
+          </div>
+        </header>
 
-      <div className="mb-4 flex flex-wrap gap-1 border-b border-[#1e293b]">
-        {HOSPITAL_TABS.map((tab) => (
-          <button
-            key={tab}
-            onClick={() => changeHospital(tab)}
-            className={`-mb-px rounded-t-md border-b-2 px-3 py-2 text-sm font-medium transition ${
-              hospitalTab === tab
-                ? "border-cyan-400 text-cyan-300 shadow-[0_2px_10px_-4px_rgba(34,211,238,0.6)]"
-                : "border-transparent text-slate-400 hover:text-cyan-200"
-            }`}
-          >
-            {hospitalTabLabel(tab)}
-          </button>
-        ))}
+        <div className="mb-4 flex snap-x flex-nowrap gap-1 overflow-x-auto border-b border-[#1e293b] md:flex-wrap md:overflow-visible">
+          {HOSPITAL_TABS.map((tab) => (
+            <button
+              key={tab}
+              onClick={() => changeHospital(tab)}
+              className={`-mb-px shrink-0 snap-start whitespace-nowrap rounded-t-md border-b-2 px-3 py-2 text-sm font-medium transition min-h-[44px] md:min-h-0 ${
+                hospitalTab === tab
+                  ? "border-cyan-400 text-cyan-300 shadow-[0_2px_10px_-4px_rgba(34,211,238,0.6)]"
+                  : "border-transparent text-slate-400 hover:text-cyan-200"
+              }`}
+            >
+              {hospitalTabLabel(tab)}
+            </button>
+          ))}
+        </div>
       </div>
 
       {unfilled.length > 0 && (
@@ -263,7 +270,7 @@ function ScheduleContent() {
         <div className="inline-flex rounded-lg border border-[#1e293b] bg-[#0f172a] p-0.5">
           <button
             onClick={() => setView("day")}
-            className={`rounded-md px-3 py-1 text-sm font-medium transition ${
+            className={`rounded-md px-3 py-1 text-sm font-medium transition min-h-[44px] md:min-h-0 ${
               view === "day"
                 ? "bg-cyan-500/15 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.35)]"
                 : "text-slate-400 hover:text-cyan-200"
@@ -273,7 +280,7 @@ function ScheduleContent() {
           </button>
           <button
             onClick={() => setView("physician")}
-            className={`rounded-md px-3 py-1 text-sm font-medium transition ${
+            className={`rounded-md px-3 py-1 text-sm font-medium transition min-h-[44px] md:min-h-0 ${
               view === "physician"
                 ? "bg-cyan-500/15 text-cyan-300 shadow-[0_0_10px_rgba(34,211,238,0.35)]"
                 : "text-slate-400 hover:text-cyan-200"
@@ -282,7 +289,9 @@ function ScheduleContent() {
             By physician
           </button>
         </div>
-        <div className="flex flex-wrap gap-2">
+
+        {/* Desktop toolbar (unchanged) */}
+        <div className="hidden flex-wrap gap-2 md:flex">
           <button
             onClick={() => {
               setSwapMode((v) => !v);
@@ -337,6 +346,32 @@ function ScheduleContent() {
             <PrinterIcon className="h-3.5 w-3.5" />
             Print
           </Link>
+        </div>
+
+        {/* Mobile toolbar: primary Regenerate + overflow menu */}
+        <div className="flex items-center gap-2 md:hidden">
+          <button
+            onClick={regenerate}
+            disabled={busy}
+            className="min-h-[44px] rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 disabled:opacity-50"
+          >
+            {busy ? "…" : "Regenerate"}
+          </button>
+          <ScheduleMenu
+            swapMode={swapMode}
+            onSwapToggle={() => {
+              setSwapMode((v) => !v);
+              setSwapFirst(null);
+            }}
+            lockedCount={lockedCount}
+            unlocking={unlocking}
+            onUnlockAll={onUnlockAll}
+            copied={copied}
+            onCopy={copyTSV}
+            csvHref={`/api/export/csv?year=${year}&month=${month}`}
+            xlsxHref={`/api/export/xlsx?year=${year}&month=${month}`}
+            printHref={`/schedule/print?year=${year}&month=${month}`}
+          />
         </div>
       </div>
 
@@ -474,7 +509,8 @@ function DayView({
                 {items.filter((i) => i.physicianId).length}/{items.length} filled
               </span>
             </div>
-            <div className="flex flex-wrap gap-2">
+            {/* Desktop: compact wrapped chips (unchanged) */}
+            <div className="hidden flex-wrap gap-2 md:flex">
               {items.map((a) => {
                 const selected = swapFirst === a.id;
                 const glow = recent.has(a.id);
@@ -502,9 +538,177 @@ function DayView({
                 );
               })}
             </div>
+
+            {/* Mobile: full-width, tap-friendly shift rows */}
+            <div className="flex flex-col gap-2 md:hidden">
+              {items.map((a) => (
+                <MobileChipRow
+                  key={a.id}
+                  a={a}
+                  onEdit={onEdit}
+                  showHospital={showHospital}
+                  selected={swapFirst === a.id}
+                  glow={recent.has(a.id)}
+                />
+              ))}
+            </div>
           </div>
         );
       })}
+    </div>
+  );
+}
+
+function MobileChipRow({
+  a,
+  onEdit,
+  showHospital,
+  selected,
+  glow,
+}: {
+  a: AssignmentDTO;
+  onEdit: (a: AssignmentDTO) => void;
+  showHospital: boolean;
+  selected: boolean;
+  glow: boolean;
+}) {
+  const style = SHIFT_STYLES[a.shiftType];
+  const label =
+    a.shiftType === "ROUNDER" && a.rounderIndex
+      ? `R${a.rounderIndex}`
+      : style.label;
+  const badge =
+    showHospital && a.hospital !== "MAIN" ? getHospitalBadge(a.hospital) : null;
+  const unfilled = !a.physicianId;
+  return (
+    <button
+      onClick={() => onEdit(a)}
+      className={`flex min-h-[44px] w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition ${
+        unfilled
+          ? "border-dashed border-rose-500/60 bg-rose-500/10 text-rose-300"
+          : style.chip
+      } ${
+        selected ? "ring-2 ring-cyan-400 ring-offset-1 ring-offset-[#0f172a]" : ""
+      } ${glow ? "edit-glow" : ""}`}
+    >
+      <span
+        className={`h-2 w-2 shrink-0 rounded-full ${
+          unfilled ? "bg-rose-400" : style.dot
+        }`}
+      />
+      <span className="shrink-0 text-xs font-semibold uppercase tracking-wide opacity-90">
+        {label}
+      </span>
+      <span className="flex-1 truncate font-semibold">
+        {unfilled ? "Tap to assign" : a.physicianName}
+      </span>
+      {badge && (
+        <span
+          className={`shrink-0 rounded-sm border px-1 text-[9px] font-semibold uppercase leading-tight ${badge.badge}`}
+          title={badge.label}
+        >
+          {badge.short}
+        </span>
+      )}
+      {a.isLocked && <LockIcon className="h-4 w-4 shrink-0 text-amber-300" />}
+      {unfilled && (
+        <AlertTriangleIcon className="h-4 w-4 shrink-0 text-rose-300" />
+      )}
+    </button>
+  );
+}
+
+function ScheduleMenu({
+  swapMode,
+  onSwapToggle,
+  lockedCount,
+  unlocking,
+  onUnlockAll,
+  copied,
+  onCopy,
+  csvHref,
+  xlsxHref,
+  printHref,
+}: {
+  swapMode: boolean;
+  onSwapToggle: () => void;
+  lockedCount: number;
+  unlocking: boolean;
+  onUnlockAll: () => void;
+  copied: boolean;
+  onCopy: () => void;
+  csvHref: string;
+  xlsxHref: string;
+  printHref: string;
+}) {
+  const [open, setOpen] = useState(false);
+  const itemClass =
+    "flex min-h-[44px] w-full items-center gap-2 px-4 py-2 text-left text-sm text-slate-200 transition hover:bg-cyan-500/10 hover:text-cyan-200";
+  return (
+    <div className="relative">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        aria-label="More actions"
+        aria-expanded={open}
+        className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-[#1e293b] bg-[#0f172a] text-slate-300 transition hover:border-cyan-400/60 hover:text-cyan-300"
+      >
+        <MoreIcon className="h-5 w-5" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onClick={() => setOpen(false)} />
+          <div className="absolute right-0 z-40 mt-1 w-48 overflow-hidden rounded-lg border border-cyan-400/30 bg-[#0f172a] py-1 shadow-[0_0_24px_rgba(34,211,238,0.2)]">
+            <button
+              className={itemClass}
+              onClick={() => {
+                onSwapToggle();
+                setOpen(false);
+              }}
+            >
+              {swapMode ? "Swap: on" : "Swap mode"}
+            </button>
+            {lockedCount > 0 && (
+              <button
+                className={itemClass}
+                disabled={unlocking}
+                onClick={() => {
+                  onUnlockAll();
+                  setOpen(false);
+                }}
+              >
+                <LockIcon className="h-4 w-4" />
+                {unlocking ? "Unlocking…" : `Unlock all (${lockedCount})`}
+              </button>
+            )}
+            <button
+              className={itemClass}
+              onClick={() => {
+                onCopy();
+                setOpen(false);
+              }}
+            >
+              <CopyIcon className="h-4 w-4" />
+              {copied ? "Copied!" : "Copy (TSV)"}
+            </button>
+            <a className={itemClass} href={csvHref} onClick={() => setOpen(false)}>
+              <DownloadIcon className="h-4 w-4" />
+              CSV
+            </a>
+            <a className={itemClass} href={xlsxHref} onClick={() => setOpen(false)}>
+              <DownloadIcon className="h-4 w-4" />
+              XLSX
+            </a>
+            <Link
+              className={itemClass}
+              href={printHref}
+              onClick={() => setOpen(false)}
+            >
+              <PrinterIcon className="h-4 w-4" />
+              Print
+            </Link>
+          </div>
+        </>
+      )}
     </div>
   );
 }
@@ -762,20 +966,20 @@ function EditModal({
           <button
             onClick={() => patch({ clear: true })}
             disabled={saving}
-            className="rounded-lg border border-rose-400/50 px-3 py-2 text-sm text-rose-300 transition hover:bg-rose-500/10 hover:shadow-[0_0_10px_rgba(244,63,94,0.3)]"
+            className="min-h-[44px] rounded-lg border border-rose-400/50 px-3 py-2 text-sm text-rose-300 transition hover:bg-rose-500/10 hover:shadow-[0_0_10px_rgba(244,63,94,0.3)] md:min-h-0"
           >
             Clear slot
           </button>
           <button
             onClick={onClose}
-            className="rounded-lg border border-[#1e293b] px-3 py-2 text-sm text-slate-300 transition hover:border-slate-500"
+            className="min-h-[44px] rounded-lg border border-[#1e293b] px-3 py-2 text-sm text-slate-300 transition hover:border-slate-500 md:min-h-0"
           >
             Cancel
           </button>
           <button
             onClick={() => patch({ physicianId, isLocked })}
             disabled={saving}
-            className="rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 hover:shadow-[0_0_14px_rgba(34,211,238,0.5)] disabled:opacity-50"
+            className="min-h-[44px] rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 hover:shadow-[0_0_14px_rgba(34,211,238,0.5)] disabled:opacity-50 md:min-h-0"
           >
             {saving ? "Saving…" : "Save"}
           </button>
