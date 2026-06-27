@@ -29,7 +29,7 @@ export function MonthPicker({
       <button
         type="button"
         onClick={() => step(-1)}
-        className="rounded-md border border-[#1e293b] bg-[#0f172a] px-2 py-1 text-sm text-slate-200 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.35)]"
+        className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-[#1e293b] bg-[#0f172a] px-2 py-1 text-sm text-slate-200 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.35)] md:min-h-[36px] md:min-w-[36px]"
         aria-label="Previous month"
       >
         ‹
@@ -54,7 +54,7 @@ export function MonthPicker({
       <button
         type="button"
         onClick={() => step(1)}
-        className="rounded-md border border-[#1e293b] bg-[#0f172a] px-2 py-1 text-sm text-slate-200 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.35)]"
+        className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-[#1e293b] bg-[#0f172a] px-2 py-1 text-sm text-slate-200 transition hover:border-cyan-400/60 hover:text-cyan-300 hover:shadow-[0_0_10px_rgba(34,211,238,0.35)] md:min-h-[36px] md:min-w-[36px]"
         aria-label="Next month"
       >
         ›

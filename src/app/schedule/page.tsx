@@ -207,7 +207,7 @@ function ScheduleContent() {
   const warnings = data?.lastRun?.warnings ?? [];
 
   return (
-    <div className="mx-auto max-w-6xl">
+    <div className="mx-auto w-full max-w-6xl min-w-0">
       <div className="sticky top-0 z-20 -mx-4 bg-slate-950/95 px-4 pt-1 backdrop-blur-md md:static md:mx-0 md:bg-transparent md:px-0 md:pt-0 md:backdrop-blur-none">
         <header className="mb-4 flex flex-col gap-3 md:mb-6 md:flex-row md:flex-wrap md:items-center md:justify-between md:gap-4">
           <div>
@@ -583,7 +583,7 @@ function MobileChipRow({
   return (
     <button
       onClick={() => onEdit(a)}
-      className={`flex min-h-[44px] w-full items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition ${
+      className={`flex min-h-[44px] w-full min-w-0 items-center gap-2 rounded-md border px-3 py-2 text-left text-sm transition ${
         unfilled
           ? "border-dashed border-rose-500/60 bg-rose-500/10 text-rose-300"
           : style.chip
@@ -599,7 +599,7 @@ function MobileChipRow({
       <span className="shrink-0 text-xs font-semibold uppercase tracking-wide opacity-90">
         {label}
       </span>
-      <span className="flex-1 truncate font-semibold">
+      <span className="min-w-0 flex-1 truncate font-semibold">
         {unfilled ? "Tap to assign" : a.physicianName}
       </span>
       {badge && (

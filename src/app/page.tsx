@@ -181,7 +181,7 @@ export default function DashboardPage() {
     `/api/export/${fmt}?year=${year}&month=${month}`;
 
   return (
-    <div className="mx-auto max-w-5xl">
+    <div className="mx-auto w-full max-w-5xl min-w-0">
       <header className="mb-6 flex flex-wrap items-center justify-between gap-4">
         <div>
           <h1 className="page-title">Dashboard</h1>
@@ -510,7 +510,7 @@ function StatCard({
   const a = ACCENT[accent];
   return (
     <div
-      className={`rounded-xl border border-t-2 border-slate-800/80 ${a.border} bg-slate-900/40 backdrop-blur-sm p-4 shadow-[0_0_0_1px_rgba(34,211,238,0.04),0_8px_24px_rgba(0,0,0,0.4)]`}
+      className={`min-w-0 rounded-xl border border-t-2 border-slate-800/80 ${a.border} bg-slate-900/40 backdrop-blur-sm p-4 shadow-[0_0_0_1px_rgba(34,211,238,0.04),0_8px_24px_rgba(0,0,0,0.4)]`}
     >
       <div className="flex items-center gap-1.5 text-xs uppercase tracking-[0.18em] text-slate-400">
         <Icon className={`h-3.5 w-3.5 ${a.text}`} />
