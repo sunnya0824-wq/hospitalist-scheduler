@@ -30,6 +30,15 @@ export interface PhysicianDTO {
   maxConsecutiveDays: number;
   icsToken: string;
   notes: string | null;
+  prefersNights: boolean;
+  avoidsNights: boolean;
+  prefersWeekends: boolean;
+  avoidsWeekends: boolean;
+  prefersDayAdmit: boolean;
+  avoidsDayAdmit: boolean;
+  avoidWeekdays: Record<string, boolean>;
+  maxNightsPerMonth: number | null;
+  maxWeekendsPerMonth: number | null;
   unavailableDates: string[];
   preferredDates: string[];
   timeOffDates: string[];
@@ -86,6 +95,8 @@ export interface PhysicianStatDTO {
   maxShifts: number;
   belowMin: boolean;
   aboveMax: boolean;
+  maxNightsPerMonth: number | null;
+  maxWeekendsPerMonth: number | null;
 }
 
 export interface RunDTO {

@@ -32,6 +32,20 @@ export interface SchedulerPhysician {
   preferredDates: Set<string>;
   /** ISO dates the physician requested off — a hard block on any shift. */
   timeOffDates: Set<string>;
+
+  // --- Soft preferences (strongly weighted, never hard constraints) ---
+  prefersNights: boolean;
+  avoidsNights: boolean;
+  prefersWeekends: boolean;
+  avoidsWeekends: boolean;
+  prefersDayAdmit: boolean;
+  avoidsDayAdmit: boolean;
+  /** Weekday numbers (0 = Sun … 6 = Sat) the physician would rather avoid. */
+  avoidWeekdays: Set<number>;
+  /** Soft monthly cap on nights; null = no cap. */
+  maxNightsPerMonth: number | null;
+  /** Soft monthly cap on weekend shifts; null = no cap. */
+  maxWeekendsPerMonth: number | null;
 }
 
 /** A single shift slot to be filled (13 per calendar day). */
@@ -75,6 +89,9 @@ export interface PhysicianStats {
   maxShifts: number;
   belowMin: boolean;
   aboveMax: boolean;
+  /** Soft monthly caps (null = none) for utilization display. */
+  maxNightsPerMonth: number | null;
+  maxWeekendsPerMonth: number | null;
 }
 
 /** A slot that no eligible physician could fill (e.g. too many off). */

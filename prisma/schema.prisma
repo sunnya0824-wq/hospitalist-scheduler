@@ -71,6 +71,21 @@ model Physician {
   icsToken       String          @unique @default(cuid())
   notes          String?
 
+  // --- Soft scheduling preferences (strongly weighted, never hard) ---
+  // Direction preferences. prefersX and avoidsX are mutually exclusive
+  // (enforced in the API and UI); both false = neutral.
+  prefersNights      Boolean @default(false)
+  avoidsNights       Boolean @default(false)
+  prefersWeekends    Boolean @default(false)
+  avoidsWeekends     Boolean @default(false)
+  prefersDayAdmit    Boolean @default(false)
+  avoidsDayAdmit     Boolean @default(false)
+  // Per-weekday avoid map: { "0": true, ... } where 0 = Sunday … 6 = Saturday.
+  avoidWeekdays  Json    @default("{}")
+  // Soft monthly caps (null = no cap). Scheduler avoids exceeding unless forced.
+  maxNightsPerMonth   Int?
+  maxWeekendsPerMonth Int?
+
   availability    PhysicianAvailability[]
   preferences     PhysicianPreference[]
   assignments     ShiftAssignment[]

@@ -66,8 +66,31 @@ export async function loadSchedulerPhysicians(): Promise<SchedulerPhysician[]> {
       unavailableDates,
       preferredDates,
       timeOffDates,
+      prefersNights: p.prefersNights,
+      avoidsNights: p.avoidsNights,
+      prefersWeekends: p.prefersWeekends,
+      avoidsWeekends: p.avoidsWeekends,
+      prefersDayAdmit: p.prefersDayAdmit,
+      avoidsDayAdmit: p.avoidsDayAdmit,
+      avoidWeekdays: parseAvoidWeekdays(p.avoidWeekdays),
+      maxNightsPerMonth: p.maxNightsPerMonth,
+      maxWeekendsPerMonth: p.maxWeekendsPerMonth,
     };
   });
+}
+
+/** Convert the stored avoidWeekdays Json ({ "0": true, … }) into a Set of weekday numbers. */
+function parseAvoidWeekdays(raw: unknown): Set<number> {
+  const out = new Set<number>();
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+      const dow = Number(key);
+      if (value === true && Number.isInteger(dow) && dow >= 0 && dow <= 6) {
+        out.add(dow);
+      }
+    }
+  }
+  return out;
 }
 
 /**

@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useParams, useSearchParams } from "next/navigation";
 import { MonthPicker } from "@/components/MonthPicker";
 import { ShiftChip } from "@/components/ShiftChip";
+import { Card, CardHeader } from "@/components/Card";
 import { MONTH_NAMES, SHIFT_STYLES, getHospitalBadge } from "@/lib/shift-style";
 import { HOSPITALS, COMMUNITY_HOSPITALS } from "@/lib/scheduler/shifts";
 import {
@@ -222,6 +223,8 @@ function PhysicianDetailContent() {
       <div className="my-8 h-px bg-gradient-to-r from-transparent via-cyan-900/40 to-transparent" />
 
       <WorkloadCard physician={physician} onSaved={load} />
+
+      <PreferencesCard physician={physician} onSaved={load} />
 
       <CalendarFeedCard physician={physician} />
 
@@ -783,6 +786,313 @@ function WorkloadCard({
         </p>
       </details>
     </div>
+  );
+}
+
+type Direction = "prefer" | "neutral" | "avoid";
+
+function toDirection(prefer: boolean, avoid: boolean): Direction {
+  if (prefer) return "prefer";
+  if (avoid) return "avoid";
+  return "neutral";
+}
+
+function PreferencesCard({
+  physician,
+  onSaved,
+}: {
+  physician: PhysicianDTO;
+  onSaved: () => void | Promise<void>;
+}) {
+  const [nights, setNights] = useState<Direction>(
+    toDirection(physician.prefersNights, physician.avoidsNights)
+  );
+  const [weekends, setWeekends] = useState<Direction>(
+    toDirection(physician.prefersWeekends, physician.avoidsWeekends)
+  );
+  const [dayAdmit, setDayAdmit] = useState<Direction>(
+    toDirection(physician.prefersDayAdmit, physician.avoidsDayAdmit)
+  );
+  const [avoidDays, setAvoidDays] = useState<Set<number>>(
+    () =>
+      new Set(
+        Object.entries(physician.avoidWeekdays ?? {})
+          .filter(([, v]) => v === true)
+          .map(([k]) => Number(k))
+      )
+  );
+  const [maxNights, setMaxNights] = useState<number | null>(
+    physician.maxNightsPerMonth
+  );
+  const [maxWeekends, setMaxWeekends] = useState<number | null>(
+    physician.maxWeekendsPerMonth
+  );
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const initial = useMemo(
+    () => ({
+      nights: toDirection(physician.prefersNights, physician.avoidsNights),
+      weekends: toDirection(physician.prefersWeekends, physician.avoidsWeekends),
+      dayAdmit: toDirection(physician.prefersDayAdmit, physician.avoidsDayAdmit),
+      avoidKey: Object.entries(physician.avoidWeekdays ?? {})
+        .filter(([, v]) => v === true)
+        .map(([k]) => Number(k))
+        .sort()
+        .join(","),
+      maxNights: physician.maxNightsPerMonth,
+      maxWeekends: physician.maxWeekendsPerMonth,
+    }),
+    [physician]
+  );
+
+  const dirty =
+    nights !== initial.nights ||
+    weekends !== initial.weekends ||
+    dayAdmit !== initial.dayAdmit ||
+    [...avoidDays].sort().join(",") !== initial.avoidKey ||
+    maxNights !== initial.maxNights ||
+    maxWeekends !== initial.maxWeekends;
+
+  const toggleDay = (dow: number) => {
+    setMessage(null);
+    setAvoidDays((prev) => {
+      const next = new Set(prev);
+      if (next.has(dow)) next.delete(dow);
+      else next.add(dow);
+      return next;
+    });
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setMessage(null);
+    try {
+      const avoidWeekdays: Record<string, boolean> = {};
+      for (const d of avoidDays) avoidWeekdays[String(d)] = true;
+      const res = await fetch(`/api/physicians/${physician.id}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          prefersNights: nights === "prefer",
+          avoidsNights: nights === "avoid",
+          prefersWeekends: weekends === "prefer",
+          avoidsWeekends: weekends === "avoid",
+          prefersDayAdmit: dayAdmit === "prefer",
+          avoidsDayAdmit: dayAdmit === "avoid",
+          avoidWeekdays,
+          maxNightsPerMonth: maxNights,
+          maxWeekendsPerMonth: maxWeekends,
+        }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => null);
+        throw new Error(body?.error ?? "Failed to save preferences.");
+      }
+      setMessage("Preferences saved.");
+      await onSaved();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Card className="mb-6">
+      <CardHeader
+        title="Preferences"
+        subtitle="Soft, strongly-weighted scheduling preferences. The scheduler honors them aggressively but will override them when needed to fill coverage."
+      />
+
+      <div className="space-y-3">
+        <DirectionRow label="Nights" value={nights} onChange={setNights} />
+        <DirectionRow label="Weekends" value={weekends} onChange={setWeekends} />
+        <DirectionRow
+          label="Day Admitting"
+          value={dayAdmit}
+          onChange={setDayAdmit}
+        />
+      </div>
+
+      <div className="mt-6">
+        <div className="text-xs font-medium uppercase tracking-wide text-slate-300">
+          Avoid specific weekdays
+        </div>
+        <div className="mt-2 grid grid-cols-7 gap-1">
+          {DAY_NAMES.map((name, dow) => {
+            const on = avoidDays.has(dow);
+            return (
+              <button
+                key={name}
+                type="button"
+                onClick={() => toggleDay(dow)}
+                aria-pressed={on}
+                className={`flex min-h-[44px] items-center justify-center rounded-md border px-1 text-xs font-medium transition ${
+                  on
+                    ? "border-fuchsia-400 bg-fuchsia-500/20 text-fuchsia-200 shadow-[0_0_10px_rgba(217,70,239,0.35)]"
+                    : "border-[#1e293b] bg-[#0a0e1a] text-slate-400 hover:border-fuchsia-500/40"
+                }`}
+              >
+                {name}
+              </button>
+            );
+          })}
+        </div>
+        <p className="mt-2 text-xs text-slate-500">
+          Tap a day to mark it as &ldquo;avoid&rdquo;. Scheduler will try to keep
+          this physician off those days.
+        </p>
+      </div>
+
+      <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
+        <CapField
+          label="Max nights per month"
+          value={maxNights}
+          onChange={(v) => {
+            setMessage(null);
+            setMaxNights(v);
+          }}
+        />
+        <CapField
+          label="Max weekends per month"
+          value={maxWeekends}
+          onChange={(v) => {
+            setMessage(null);
+            setMaxWeekends(v);
+          }}
+        />
+      </div>
+      <p className="mt-2 text-xs text-slate-500">
+        Soft caps. Scheduler will avoid exceeding these unless required to fill a
+        slot.
+      </p>
+
+      <div className="mt-5 flex items-center gap-3">
+        <button
+          onClick={save}
+          disabled={saving || !dirty}
+          className="min-h-[44px] rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 hover:shadow-[0_0_14px_rgba(34,211,238,0.5)] disabled:opacity-50 md:min-h-0"
+        >
+          {saving ? "Saving…" : "Save preferences"}
+        </button>
+        {message && <span className="text-xs text-slate-400">{message}</span>}
+      </div>
+    </Card>
+  );
+}
+
+function DirectionRow({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: Direction;
+  onChange: (d: Direction) => void;
+}) {
+  const options: { key: Direction; label: string; active: string }[] = [
+    {
+      key: "prefer",
+      label: "Prefer",
+      active:
+        "border-cyan-400 bg-cyan-500/20 text-cyan-200 shadow-[0_0_10px_rgba(34,211,238,0.3)]",
+    },
+    {
+      key: "neutral",
+      label: "Neutral",
+      active: "border-slate-400 bg-slate-500/20 text-slate-100",
+    },
+    {
+      key: "avoid",
+      label: "Avoid",
+      active:
+        "border-fuchsia-400 bg-fuchsia-500/20 text-fuchsia-200 shadow-[0_0_10px_rgba(217,70,239,0.3)]",
+    },
+  ];
+  return (
+    <div className="flex flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between">
+      <span className="text-sm font-medium text-slate-200">{label}</span>
+      <div className="grid grid-cols-3 gap-1 sm:w-72">
+        {options.map((o) => {
+          const on = value === o.key;
+          return (
+            <button
+              key={o.key}
+              type="button"
+              onClick={() => onChange(o.key)}
+              aria-pressed={on}
+              className={`flex min-h-[44px] items-center justify-center rounded-md border px-2 text-xs font-medium transition md:min-h-0 md:py-1.5 ${
+                on
+                  ? o.active
+                  : "border-[#1e293b] bg-[#0a0e1a] text-slate-500 hover:border-slate-600"
+              }`}
+            >
+              {o.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function CapField({
+  label,
+  value,
+  onChange,
+}: {
+  label: string;
+  value: number | null;
+  onChange: (v: number | null) => void;
+}) {
+  const clamp = (n: number) => Math.max(0, Math.min(31, Math.round(n)));
+  const current = value ?? 0;
+  return (
+    <label className="block">
+      <span className="text-xs font-medium text-slate-300">{label}</span>
+      <div className="mt-0.5 flex items-stretch gap-1">
+        <button
+          type="button"
+          aria-label={`Decrease ${label}`}
+          onClick={() => onChange(clamp(current - 1))}
+          disabled={value == null || value <= 0}
+          className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-cyan-400/50 bg-cyan-500/10 text-lg font-bold text-cyan-300 transition hover:bg-cyan-500/20 disabled:opacity-40"
+        >
+          −
+        </button>
+        <input
+          type="number"
+          min={0}
+          max={31}
+          value={value ?? ""}
+          placeholder="No limit"
+          onChange={(e) => {
+            const raw = e.target.value;
+            if (raw === "") return onChange(null);
+            const n = Number(raw);
+            if (Number.isFinite(n)) onChange(clamp(n));
+          }}
+          className="w-full min-w-0 rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1.5 text-center text-sm tabular-nums text-slate-200 placeholder:text-slate-600 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50 md:text-left"
+        />
+        <button
+          type="button"
+          aria-label={`Increase ${label}`}
+          onClick={() => onChange(clamp(current + 1))}
+          className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-md border border-cyan-400/50 bg-cyan-500/10 text-lg font-bold text-cyan-300 transition hover:bg-cyan-500/20"
+        >
+          +
+        </button>
+        <button
+          type="button"
+          onClick={() => onChange(null)}
+          disabled={value == null}
+          className="shrink-0 rounded-md border border-slate-700 px-2 text-xs font-medium uppercase tracking-wide text-slate-400 transition hover:border-rose-400/50 hover:text-rose-300 disabled:opacity-40"
+        >
+          Clear
+        </button>
+      </div>
+    </label>
   );
 }
 

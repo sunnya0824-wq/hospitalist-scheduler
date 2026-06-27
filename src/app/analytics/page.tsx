@@ -290,6 +290,8 @@ function AnalyticsContent() {
                     <th className="px-3 py-2">Nights</th>
                     <th className="px-3 py-2">Weekends</th>
                     <th className="px-3 py-2">Holidays</th>
+                    <th className="px-3 py-2">Nights cap</th>
+                    <th className="px-3 py-2">Weekends cap</th>
                     <th className="px-3 py-2">Target</th>
                     <th className="px-3 py-2">Status</th>
                   </tr>
@@ -305,6 +307,12 @@ function AnalyticsContent() {
                       <td className="px-3 py-2">{s.weekends}</td>
                       <td className="px-3 py-2 text-amber-300/80">
                         {s.holidays}
+                      </td>
+                      <td className="px-3 py-2">
+                        <CapCell used={s.nights} cap={s.maxNightsPerMonth} />
+                      </td>
+                      <td className="px-3 py-2">
+                        <CapCell used={s.weekends} cap={s.maxWeekendsPerMonth} />
                       </td>
                       <td className="px-3 py-2 text-slate-400">
                         {s.target || s.desiredShifts}
@@ -371,6 +379,22 @@ function Metric({
       <div className={`mt-1 text-2xl font-bold tabular-nums ${accent}`}>{value}</div>
       {hint && <div className="text-xs text-slate-400">{hint}</div>}
     </div>
+  );
+}
+
+function CapCell({ used, cap }: { used: number; cap: number | null }) {
+  if (cap == null) return <span className="text-slate-600">—</span>;
+  const over = used > cap;
+  const at = used === cap;
+  return (
+    <span
+      className={`tabular-nums font-medium ${
+        over ? "text-rose-400" : at ? "text-amber-300" : "text-emerald-400"
+      }`}
+      title={over ? "Over soft cap" : at ? "At soft cap" : "Within soft cap"}
+    >
+      {used}/{cap}
+    </span>
   );
 }
 

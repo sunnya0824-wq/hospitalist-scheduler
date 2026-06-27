@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { fromISODate } from "@/lib/scheduler/dates";
-import { sanitize } from "@/lib/physician-utils";
+import { sanitize, validatePreferences } from "@/lib/physician-utils";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -12,6 +12,11 @@ export async function PUT(
 ) {
   const body = await req.json();
   const { unavailableDates, preferredDates, ...fields } = body;
+
+  const prefError = validatePreferences(fields);
+  if (prefError) {
+    return NextResponse.json({ error: prefError }, { status: 400 });
+  }
 
   // Replace availability rows when the client sends date arrays.
   if (Array.isArray(unavailableDates) || Array.isArray(preferredDates)) {

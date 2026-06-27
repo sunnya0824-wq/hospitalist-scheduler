@@ -7,9 +7,21 @@ import type {
   ShiftSlot,
   UnfilledSlot,
 } from "./types";
-import { addDaysISO, isWeekend } from "./dates";
+import { addDaysISO, isWeekend, fromISODate } from "./dates";
 import { isHoliday } from "../holidays";
 import { SHIFT_LABELS, isNightType } from "./shifts";
+
+/**
+ * Soft-preference weights. Sized to sit at ~0.3–0.5× the dominant fairness
+ * signals (night/weekend fairness are ±30/±25 per shift off the mean), so a
+ * stated preference strongly biases the pick without ever overriding the hard
+ * constraints or fully swamping fairness. Higher score = better candidate, so
+ * a "prefers" match ADDS and an "avoids"/cap-overrun SUBTRACTS.
+ */
+const PREF_DIRECTION_WEIGHT = 50;
+const PREF_WEEKDAY_AVOID_WEIGHT = 40;
+const CAP_OVER_WEIGHT = 200;
+const CAP_APPROACH_WEIGHT = 20;
 
 /**
  * Mutable per-physician tally maintained while the greedy assignment runs.
@@ -183,6 +195,41 @@ function score(
   }
   if (phys.shiftPreference === "MORE") s += 30;
   if (phys.shiftPreference === "FEWER") s -= 30;
+
+  // --- Soft per-physician preferences & caps ------------------------------
+  // Direction preferences: reward a matching "prefers", penalise an "avoids".
+  if (isNightType(slot.shiftType)) {
+    if (phys.prefersNights) s += PREF_DIRECTION_WEIGHT;
+    if (phys.avoidsNights) s -= PREF_DIRECTION_WEIGHT;
+  }
+  if (isWeekend(slot.date)) {
+    if (phys.prefersWeekends) s += PREF_DIRECTION_WEIGHT;
+    if (phys.avoidsWeekends) s -= PREF_DIRECTION_WEIGHT;
+  }
+  if (slot.shiftType === "ADMIN") {
+    if (phys.prefersDayAdmit) s += PREF_DIRECTION_WEIGHT;
+    if (phys.avoidsDayAdmit) s -= PREF_DIRECTION_WEIGHT;
+  }
+  // Per-weekday avoid: penalise shifts landing on a day the physician avoids.
+  if (phys.avoidWeekdays.has(fromISODate(slot.date).getUTCDay())) {
+    s -= PREF_WEEKDAY_AVOID_WEIGHT;
+  }
+  // Soft caps: heavy penalty once over the cap, gentle gradient as they near it.
+  // SOFT — if every alternative also overruns, the slot is still filled.
+  if (phys.maxNightsPerMonth != null && isNightType(slot.shiftType)) {
+    if (tally.nights >= phys.maxNightsPerMonth) {
+      s -= CAP_OVER_WEIGHT;
+    } else if (phys.maxNightsPerMonth > 0) {
+      s -= (tally.nights / phys.maxNightsPerMonth) * CAP_APPROACH_WEIGHT;
+    }
+  }
+  if (phys.maxWeekendsPerMonth != null && isWeekend(slot.date)) {
+    if (tally.weekends >= phys.maxWeekendsPerMonth) {
+      s -= CAP_OVER_WEIGHT;
+    } else if (phys.maxWeekendsPerMonth > 0) {
+      s -= (tally.weekends / phys.maxWeekendsPerMonth) * CAP_APPROACH_WEIGHT;
+    }
+  }
 
   // --- Rest / consecutive days --------------------------------------------
   // Bonus when a night lands such that the prior day was free (well rested).
@@ -411,6 +458,8 @@ function buildStats(
       maxShifts: p.maxShifts,
       belowMin,
       aboveMax,
+      maxNightsPerMonth: p.maxNightsPerMonth,
+      maxWeekendsPerMonth: p.maxWeekendsPerMonth,
     };
   });
 }
