@@ -1,0 +1,24 @@
+# Packs node_modules for offline dev sandboxes that cannot reach the npm
+# registry. Publishes to the "ci-deps" prerelease. Safe to delete.
+name: Pack dependencies
+on:
+  push:
+    branches: [generic-scheduler]
+    paths: [package-lock.json, package.json, .github/workflows/deps.yml]
+permissions:
+  contents: write
+jobs:
+  pack:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: tar -czf node_modules.tgz node_modules
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view ci-deps >/dev/null 2>&1 || gh release create ci-deps --prerelease --title "CI deps cache (temporary)" --notes "Temporary dependency bundle for development. Safe to delete." --target ${{ github.sha }}
+          gh release upload ci-deps node_modules.tgz --clobber
