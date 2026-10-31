@@ -19,19 +19,22 @@ export interface SeedPhysician {
   shiftPreference: ShiftPreference;
   nightEligible: boolean;
   adminEligible: boolean;
-  canWorkCarson?: boolean;
-  canWorkEaton?: boolean;
-  canWorkClinton?: boolean;
+  maxConsecutiveNights?: number;
+  preferredNightBlock?: number | null;
+  prefersNights?: boolean;
+  /** Codes of restricted (not open-to-all) demo locations this physician may work. */
+  locationCodes?: string[];
   notes?: string;
   unavailableDates?: string[];
   preferredDates?: string[];
 }
 
-// Sample unavailable/preferred dates anchored to a representative month so the
-// generated schedule visibly reacts to them. Adjust freely after seeding.
-const Y = new Date().getUTCFullYear();
-const nextMonth = ((new Date().getUTCMonth() + 1) % 12) + 1;
-const mm = String(nextMonth).padStart(2, "0");
+// Sample unavailable/preferred dates anchored to NEXT month (rolling over the
+// year in December) so the generated schedule visibly reacts to them.
+const now = new Date();
+const next = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1));
+const Y = next.getUTCFullYear();
+const mm = String(next.getUTCMonth() + 1).padStart(2, "0");
 const d = (day: number) => `${Y}-${mm}-${String(day).padStart(2, "0")}`;
 
 function physician(
@@ -61,19 +64,18 @@ function physician(
 
 export const SEED_PHYSICIANS: SeedPhysician[] = [
   // --- 5 standard @ 14 shifts/mo ------------------------------------------
-  physician("Dr. Amara Okafor", 14, { canWorkCarson: true }),
+  physician("Dr. Amara Okafor", 14, { locationCodes: ["NORTH"] }),
   physician("Dr. Benjamin Cho", 14, {
     shiftPreference: "MORE",
-    canWorkCarson: true,
-    canWorkEaton: true,
+    locationCodes: ["NORTH", "SOUTH"],
   }),
   physician("Dr. Carla Mendez", 14, {
     preferredDates: [d(5), d(6), d(12)],
-    canWorkEaton: true,
+    locationCodes: ["SOUTH"],
   }),
   physician("Dr. Daniel Reyes", 14, {
     unavailableDates: [d(2), d(3)],
-    canWorkClinton: true,
+    locationCodes: ["NORTH"],
   }),
   physician("Dr. Elena Vasquez", 14, {
     shiftPreference: "FEWER",
@@ -91,8 +93,7 @@ export const SEED_PHYSICIANS: SeedPhysician[] = [
     unavailableDates: [d(8), d(9), d(10)],
   }),
   physician("Dr. Idris Mohamed", 12, {
-    canWorkCarson: true,
-    canWorkClinton: true,
+    locationCodes: ["NORTH", "SOUTH"],
   }),
 
   // --- 4 high-load @ 18 shifts/mo -----------------------------------------
@@ -108,16 +109,22 @@ export const SEED_PHYSICIANS: SeedPhysician[] = [
     shiftPreference: "MORE",
     minNights: 6,
     maxNights: 14,
+    prefersNights: true,
+    preferredNightBlock: 7,
   }),
   physician("Dr. Omar Khalil", 24, {
     shiftPreference: "MORE",
     minNights: 6,
     maxNights: 14,
+    prefersNights: true,
+    preferredNightBlock: 7,
   }),
   physician("Dr. Priya Nair", 24, {
     shiftPreference: "MORE",
     minNights: 6,
     maxNights: 14,
+    prefersNights: true,
+    preferredNightBlock: 7,
   }),
 
   // --- 4 @ 14 shifts/mo with varied eligibility ---------------------------
@@ -135,11 +142,57 @@ export const SEED_PHYSICIANS: SeedPhysician[] = [
     adminEligible: false,
     notes: "Rounding only.",
     unavailableDates: [d(15), d(16)],
-    canWorkEaton: true,
-    canWorkClinton: true,
+    locationCodes: ["SOUTH"],
   }),
   physician("Dr. Tessa Lindqvist", 14, {
     nightEligible: true,
     adminEligible: true,
   }),
+];
+
+/** Demo configuration used when seeding an empty install and in tests. */
+export interface DemoLocation {
+  code: string;
+  name: string;
+  openToAll: boolean;
+  templates: {
+    name: string;
+    code: string;
+    category: "DAY" | "ADMIT" | "NIGHT";
+    startTime: string;
+    endTime: string;
+    dailyCounts: number[];
+    holidayCount?: number | null;
+    color: string;
+  }[];
+}
+
+export const DEMO_LOCATIONS: DemoLocation[] = [
+  {
+    code: "MAIN",
+    name: "Main Hospital",
+    openToAll: true,
+    templates: [
+      { name: "Rounder", code: "R", category: "DAY", startTime: "07:00", endTime: "17:00", dailyCounts: [10, 10, 10, 10, 10, 10, 10], color: "cyan" },
+      { name: "Day Admitting", code: "DA", category: "ADMIT", startTime: "12:00", endTime: "21:00", dailyCounts: [1, 1, 1, 1, 1, 1, 1], color: "amber" },
+      { name: "Night Admit 1", code: "N1", category: "NIGHT", startTime: "17:00", endTime: "05:00", dailyCounts: [1, 1, 1, 1, 1, 1, 1], color: "teal" },
+      { name: "Night Admit 2", code: "N2", category: "NIGHT", startTime: "19:00", endTime: "07:00", dailyCounts: [1, 1, 1, 1, 1, 1, 1], color: "fuchsia" },
+    ],
+  },
+  {
+    code: "NORTH",
+    name: "North Campus",
+    openToAll: false,
+    templates: [
+      { name: "Rounder", code: "R", category: "DAY", startTime: "07:00", endTime: "17:00", dailyCounts: [0, 0, 0, 0, 0, 0, 0], color: "violet" },
+    ],
+  },
+  {
+    code: "SOUTH",
+    name: "South Campus",
+    openToAll: false,
+    templates: [
+      { name: "Rounder", code: "R", category: "DAY", startTime: "07:00", endTime: "17:00", dailyCounts: [0, 0, 0, 0, 0, 0, 0], color: "lime" },
+    ],
+  },
 ];

@@ -11,18 +11,13 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum ShiftType {
-  ROUNDER
-  ADMIN
-  NIGHT_ADMIT_1
-  NIGHT_ADMIT_2
-}
-
-enum Hospital {
-  MAIN
-  CARSON
-  EATON
-  CLINTON
+// Every shift template belongs to one category. Categories drive eligibility
+// (admit/night flags), per-category min/max targets, fairness and the
+// post-night rest rule. Names, hours and counts are fully configurable.
+enum ShiftCategory {
+  DAY
+  ADMIT
+  NIGHT
 }
 
 enum ShiftPreference {
@@ -58,15 +53,16 @@ model Physician {
   shiftPreference ShiftPreference @default(NEUTRAL)
   nightEligible  Boolean         @default(true)
   adminEligible  Boolean         @default(true)
-  canWorkCarson  Boolean         @default(false)
-  canWorkEaton   Boolean         @default(false)
-  canWorkClinton Boolean         @default(false)
   // Fractional appointment (1.0 = full time). Scales the auto-computed target.
   fteMultiplier      Decimal     @default(1.0)
   // Explicit per-month shift target. Null → round(monthlyAvg * fteMultiplier).
   monthlyShiftTarget Int?
   // Hard cap on consecutive working days across all hospitals.
   maxConsecutiveDays Int         @default(7)
+  // Hard cap on nights worked back to back in one block.
+  maxConsecutiveNights Int       @default(7)
+  // Preferred night block length; null = organization default.
+  preferredNightBlock  Int?
   // Opaque token for the personal ICS calendar feed.
   icsToken       String          @unique @default(cuid())
   notes          String?
@@ -90,6 +86,8 @@ model Physician {
   preferences     PhysicianPreference[]
   assignments     ShiftAssignment[]
   timeOffRequests TimeOffRequest[]
+  // Sites this physician may work beyond those open to everyone.
+  locations       PhysicianLocation[]
 
   createdAt      DateTime        @default(now())
   updatedAt      DateTime        @updatedAt
@@ -113,13 +111,10 @@ model ScheduleMonth {
   year         Int
   month        Int // 1-12
   status       ScheduleStatus   @default(DRAFT)
-  rounderCount     Int          @default(10) // 1-20 ROUNDER slots/day
-  dayAdmitCount    Int          @default(1)  // 0-3 ADMIN slots/day
-  nightAdmit1Count Int          @default(1)  // 0-2 NIGHT_ADMIT_1 slots/day
-  nightAdmit2Count Int          @default(1)  // 0-2 NIGHT_ADMIT_2 slots/day
-  carsonRounderCount  Int       @default(0)  // ROUNDER slots/day at Sparrow Carson
-  eatonRounderCount   Int       @default(0)  // ROUNDER slots/day at Sparrow Eaton
-  clintonRounderCount Int       @default(0)  // ROUNDER slots/day at Sparrow Clinton
+  // Per-month coverage overrides: { "<shiftTemplateId>": slotsPerDay }.
+  // A template listed here uses that count every day of the month instead
+  // of its own weekday/holiday counts.
+  coverageOverrides Json      @default("{}")
   createdAt    DateTime         @default(now())
   generatedAt  DateTime?
 
@@ -136,9 +131,20 @@ model ShiftAssignment {
 
   date            DateTime // the calendar day the shift starts (date-only, midnight UTC)
   endDate         DateTime // the calendar day the shift ends (night shifts cross midnight)
-  shiftType       ShiftType
-  hospital        Hospital      @default(MAIN)
-  rounderIndex    Int? // 1-10 for ROUNDER slots
+  // Template this slot came from. Null if the template was later deleted;
+  // the snapshot fields below keep historical schedules intact.
+  shiftTemplate   ShiftTemplate? @relation(fields: [shiftTemplateId], references: [id], onDelete: SetNull)
+  shiftTemplateId String?
+  location        Location?     @relation(fields: [locationId], references: [id], onDelete: SetNull)
+  locationId      String?
+  // Snapshot of the template at generation time.
+  shiftName       String
+  shiftCode       String
+  category        ShiftCategory
+  locationName    String
+  locationCode    String
+  color           String        @default("cyan")
+  slotIndex       Int           @default(1) // 1..N when a template has N slots that day
   startTime       String // e.g. "07:00"
   endTime         String // e.g. "17:00"
 
@@ -155,6 +161,7 @@ model ShiftAssignment {
 
   @@index([scheduleMonthId])
   @@index([date])
+  @@index([physicianId, date])
 }
 
 model PhysicianAvailability {
@@ -195,4 +202,85 @@ model ScheduleGenerationRun {
   summary         Json?
 
   @@index([scheduleMonthId])
+}
+
+// Organization-wide settings. Single row with id = 1.
+model Settings {
+  id                       Int      @id @default(1)
+  organizationName         String   @default("Hospitalist Group")
+  // Full days off required after the last night of a block (0 = none).
+  restDaysAfterNights      Int      @default(2)
+  // The scheduler groups nights into blocks of about this length.
+  preferredNightBlock      Int      @default(3)
+  // Weekday numbers (0 = Sunday … 6 = Saturday) counted as the weekend.
+  weekendDays              Int[]    @default([0, 6])
+  observeUSFederalHolidays Boolean  @default(true)
+  // Also treat the weekday a federal holiday is observed on as a holiday.
+  includeObservedHolidays  Boolean  @default(true)
+  // Built-in holiday keys to ignore, e.g. ["COLUMBUS"].
+  disabledHolidays         String[] @default([])
+  updatedAt                DateTime @updatedAt
+}
+
+// A hospital, campus or service line that needs coverage.
+model Location {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  code      String // short badge, e.g. "MAIN", "N"
+  sortOrder Int      @default(0)
+  active    Boolean  @default(true)
+  // true: every physician may work here. false: only listed physicians.
+  openToAll Boolean  @default(true)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  shiftTemplates ShiftTemplate[]
+  physicians     PhysicianLocation[]
+  assignments    ShiftAssignment[]
+}
+
+// A recurring shift that needs filling, e.g. "Rounder 07:00–17:00 x10".
+model ShiftTemplate {
+  id           String        @id @default(cuid())
+  location     Location      @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  locationId   String
+  name         String
+  code         String // short label, e.g. "R", "N1"
+  category     ShiftCategory
+  startTime    String // "HH:MM"; an end time at or before the start = overnight
+  endTime      String
+  // Slots needed per day, Sunday … Saturday (7 values).
+  dailyCounts  Int[]         @default([1, 1, 1, 1, 1, 1, 1])
+  // Slots needed on holidays; null = use that weekday's count.
+  holidayCount Int?
+  color        String        @default("cyan")
+  sortOrder    Int           @default(0)
+  active       Boolean       @default(true)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  assignments ShiftAssignment[]
+
+  @@index([locationId])
+}
+
+model PhysicianLocation {
+  physician   Physician @relation(fields: [physicianId], references: [id], onDelete: Cascade)
+  physicianId String
+  location    Location  @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  locationId  String
+
+  @@id([physicianId, locationId])
+  @@index([locationId])
+}
+
+// Custom holidays. recurring = same month/day every year.
+model Holiday {
+  id        String   @id @default(cuid())
+  date      DateTime // date-only, midnight UTC
+  name      String
+  recurring Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([date])
 }

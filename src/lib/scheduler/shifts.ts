@@ -1,287 +1,249 @@
-import type { ShiftType, Hospital } from "@prisma/client";
-import type { ShiftSlot } from "./types";
-import { addDaysISO, monthDates } from "./dates";
+import type { ShiftCategory, ShiftSlot } from "./types";
+import { addDaysISO, monthDates, weekdayOf } from "./dates";
 
-export const ROUNDER_COUNT = 10;
-
-/** Community (rounding-only) hospitals, in display order. MAIN is handled separately. */
-export const COMMUNITY_HOSPITALS = ["CARSON", "EATON", "CLINTON"] as const;
-export type CommunityHospital = (typeof COMMUNITY_HOSPITALS)[number];
-
-/** All hospitals including MAIN, in display order. */
-export const HOSPITALS: Hospital[] = ["MAIN", "CARSON", "EATON", "CLINTON"];
-
-/** Human-friendly hospital names. */
-export const HOSPITAL_LABELS: Record<Hospital, string> = {
-  MAIN: "Main Hospital",
-  CARSON: "Sparrow Carson",
-  EATON: "Sparrow Eaton",
-  CLINTON: "Sparrow Clinton",
-};
-
-/** Per-hospital rounder-count-per-day for the three community hospitals. */
-export interface CommunityCoverage {
-  carsonRounderCount: number;
-  eatonRounderCount: number;
-  clintonRounderCount: number;
+/** A configured shift template, flattened with its location's details. */
+export interface ShiftTemplateDef {
+  id: string;
+  locationId: string;
+  locationName: string;
+  locationCode: string;
+  locationSort: number;
+  name: string;
+  code: string;
+  category: ShiftCategory;
+  /** "HH:MM" */
+  startTime: string;
+  /** "HH:MM"; at or before startTime means the shift ends the next day. */
+  endTime: string;
+  /** Slots needed Sunday … Saturday. */
+  dailyCounts: number[];
+  /** Slots needed on holidays; null = use the weekday count. */
+  holidayCount: number | null;
+  color: string;
+  sortOrder: number;
 }
 
-export const DEFAULT_COMMUNITY_COVERAGE: CommunityCoverage = {
-  carsonRounderCount: 0,
-  eatonRounderCount: 0,
-  clintonRounderCount: 0,
+export const CATEGORY_LABELS: Record<ShiftCategory, string> = {
+  DAY: "Day",
+  ADMIT: "Admitting",
+  NIGHT: "Night",
 };
 
-/** Map a community hospital to its ScheduleMonth count field name. */
-export const COMMUNITY_COUNT_KEY: Record<CommunityHospital, keyof CommunityCoverage> = {
-  CARSON: "carsonRounderCount",
-  EATON: "eatonRounderCount",
-  CLINTON: "clintonRounderCount",
+export const CATEGORY_DESCRIPTIONS: Record<ShiftCategory, string> = {
+  DAY: "Regular daytime work (e.g. rounding). Anyone can take these.",
+  ADMIT: "Admitting shifts. Only admit-eligible physicians.",
+  NIGHT: "Overnight shifts. Only night-eligible physicians; rest days follow each block.",
 };
 
-/** Clamp incoming community rounder counts to 0-20, applying defaults. */
-export function normalizeCommunityCoverage(
-  input: Partial<CommunityCoverage> | null | undefined
-): CommunityCoverage {
-  const clamp = (v: unknown, def: number) => {
-    const n = Math.round(Number(v));
-    if (!Number.isFinite(n)) return def;
-    return Math.min(20, Math.max(0, n));
-  };
-  return {
-    carsonRounderCount: clamp(input?.carsonRounderCount, 0),
-    eatonRounderCount: clamp(input?.eatonRounderCount, 0),
-    clintonRounderCount: clamp(input?.clintonRounderCount, 0),
-  };
+export const MAX_SLOTS_PER_DAY = 50;
+
+const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
+
+export function isValidTime(t: string): boolean {
+  return TIME_RE.test(t);
 }
 
-/** Per-month adjustable daily coverage counts. */
-export interface CoverageSettings {
-  rounderCount: number;
-  dayAdmitCount: number;
-  nightAdmit1Count: number;
-  nightAdmit2Count: number;
+/** True when a shift ends on the calendar day after it starts. */
+export function isOvernight(startTime: string, endTime: string): boolean {
+  return endTime <= startTime;
 }
 
-/** Defaults matching the original hardcoded template (13 slots/day). */
-export const DEFAULT_COVERAGE: CoverageSettings = {
-  rounderCount: 10,
-  dayAdmitCount: 1,
-  nightAdmit1Count: 1,
-  nightAdmit2Count: 1,
-};
+/** Shift length in hours (handles overnight). */
+export function shiftHours(startTime: string, endTime: string): number {
+  const toMin = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+  let diff = toMin(endTime) - toMin(startTime);
+  if (diff <= 0) diff += 24 * 60;
+  return diff / 60;
+}
 
-/** Total daily slots implied by a coverage setting. */
-export function totalDailySlots(c: CoverageSettings): number {
-  return (
-    c.rounderCount + c.dayAdmitCount + c.nightAdmit1Count + c.nightAdmit2Count
+/** Clamp a count to a sane non-negative integer. */
+export function clampCount(v: unknown): number {
+  const n = Math.round(Number(v));
+  if (!Number.isFinite(n) || n < 0) return 0;
+  return Math.min(MAX_SLOTS_PER_DAY, n);
+}
+
+/** Normalize a dailyCounts array to exactly 7 clamped values. */
+export function normalizeDailyCounts(raw: unknown, fallback = 1): number[] {
+  if (Array.isArray(raw)) {
+    const out = raw.slice(0, 7).map(clampCount);
+    while (out.length < 7) out.push(out.length ? out[out.length - 1] : fallback);
+    return out;
+  }
+  if (raw !== undefined && raw !== null && raw !== "") {
+    return Array(7).fill(clampCount(raw));
+  }
+  return Array(7).fill(fallback);
+}
+
+/** Per-month overrides: template id → slots per day (every day). */
+export type CoverageOverrides = Record<string, number>;
+
+export function normalizeOverrides(raw: unknown): CoverageOverrides {
+  const out: CoverageOverrides = {};
+  if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+      if (v === null || v === undefined || v === "") continue;
+      out[k] = clampCount(v);
+    }
+  }
+  return out;
+}
+
+/** Slots a template needs on a given date. */
+export function countFor(
+  t: ShiftTemplateDef,
+  iso: string,
+  holidays: ReadonlySet<string>,
+  overrides: CoverageOverrides = {}
+): number {
+  if (t.id in overrides) return overrides[t.id];
+  if (t.holidayCount != null && holidays.has(iso)) return t.holidayCount;
+  return t.dailyCounts[weekdayOf(iso)] ?? 0;
+}
+
+/** Order templates the way they should appear (location, then template). */
+export function sortTemplates<T extends Pick<ShiftTemplateDef, "locationSort" | "sortOrder" | "locationName" | "name">>(
+  templates: T[]
+): T[] {
+  return [...templates].sort(
+    (a, b) =>
+      a.locationSort - b.locationSort ||
+      a.locationName.localeCompare(b.locationName) ||
+      a.sortOrder - b.sortOrder ||
+      a.name.localeCompare(b.name)
   );
 }
 
-/** Clamp incoming coverage values to their valid ranges, applying defaults. */
-export function normalizeCoverage(
-  input: Partial<CoverageSettings> | null | undefined
-): CoverageSettings {
-  const clamp = (v: unknown, lo: number, hi: number, def: number) => {
-    const n = Math.round(Number(v));
-    if (!Number.isFinite(n)) return def;
-    return Math.min(hi, Math.max(lo, n));
-  };
-  return {
-    rounderCount: clamp(input?.rounderCount, 1, 20, DEFAULT_COVERAGE.rounderCount),
-    dayAdmitCount: clamp(input?.dayAdmitCount, 0, 3, DEFAULT_COVERAGE.dayAdmitCount),
-    nightAdmit1Count: clamp(
-      input?.nightAdmit1Count,
-      0,
-      2,
-      DEFAULT_COVERAGE.nightAdmit1Count
-    ),
-    nightAdmit2Count: clamp(
-      input?.nightAdmit2Count,
-      0,
-      2,
-      DEFAULT_COVERAGE.nightAdmit2Count
-    ),
-  };
+/** Build every empty slot for the given dates. */
+export function generateSlotsForDates(
+  dates: string[],
+  templates: ShiftTemplateDef[],
+  holidays: ReadonlySet<string> = new Set(),
+  overrides: CoverageOverrides = {}
+): ShiftSlot[] {
+  const slots: ShiftSlot[] = [];
+  const ordered = sortTemplates(templates);
+  for (const date of dates) {
+    for (const t of ordered) {
+      const n = countFor(t, date, holidays, overrides);
+      const endDate = isOvernight(t.startTime, t.endTime) ? addDaysISO(date, 1) : date;
+      for (let i = 1; i <= n; i++) {
+        slots.push({
+          date,
+          endDate,
+          shiftTemplateId: t.id,
+          locationId: t.locationId,
+          category: t.category,
+          slotIndex: i,
+          startTime: t.startTime,
+          endTime: t.endTime,
+          shiftName: t.name,
+          shiftCode: t.code,
+          locationName: t.locationName,
+          locationCode: t.locationCode,
+          color: t.color,
+          locationSort: t.locationSort,
+          templateSort: t.sortOrder,
+          physicianId: null,
+          isLocked: false,
+          isManual: false,
+        });
+      }
+    }
+  }
+  return slots;
 }
 
-/** Static definition of a single daily shift slot template. */
-export interface ShiftDefinition {
-  shiftType: ShiftType;
-  rounderIndex: number | null;
-  startTime: string;
-  endTime: string;
-  /** Days the shift end date is offset from the start date. */
-  endOffset: number;
-}
-
-/**
- * Build the per-day list of shift slot templates from the coverage settings.
- * ROUNDER slots are always indexed 1..rounderCount. For ADMIN/NIGHT types the
- * index is stored in rounderIndex only when more than one slot exists, so the
- * common single-slot case keeps a null index (matching the original schema).
- */
-export function shiftDefinitions(
-  coverage: CoverageSettings
-): ShiftDefinition[] {
-  const defs: ShiftDefinition[] = [];
-  for (let i = 0; i < coverage.rounderCount; i++) {
-    defs.push({
-      shiftType: "ROUNDER",
-      rounderIndex: i + 1,
-      startTime: "07:00",
-      endTime: "17:00",
-      endOffset: 0,
-    });
-  }
-  for (let i = 0; i < coverage.dayAdmitCount; i++) {
-    defs.push({
-      shiftType: "ADMIN",
-      rounderIndex: coverage.dayAdmitCount > 1 ? i + 1 : null,
-      startTime: "12:00",
-      endTime: "21:00",
-      endOffset: 0,
-    });
-  }
-  for (let i = 0; i < coverage.nightAdmit1Count; i++) {
-    defs.push({
-      shiftType: "NIGHT_ADMIT_1",
-      rounderIndex: coverage.nightAdmit1Count > 1 ? i + 1 : null,
-      startTime: "17:00",
-      endTime: "05:00",
-      endOffset: 1,
-    });
-  }
-  for (let i = 0; i < coverage.nightAdmit2Count; i++) {
-    defs.push({
-      shiftType: "NIGHT_ADMIT_2",
-      rounderIndex: coverage.nightAdmit2Count > 1 ? i + 1 : null,
-      startTime: "19:00",
-      endTime: "07:00",
-      endOffset: 1,
-    });
-  }
-  return defs;
-}
-
-/** Backwards-compatible default template (10 rounders + 1 admin + 2 nights). */
-export const SHIFT_DEFINITIONS: ShiftDefinition[] =
-  shiftDefinitions(DEFAULT_COVERAGE);
-
-/** A single tabular column for the by-day schedule / exports. */
-export interface ScheduleColumn {
-  /** Header label, e.g. "R1", "Day Admit", "Night 1". */
-  label: string;
-  shiftType: ShiftType;
-  /** Slot index to match (rounderIndex); null matches the sole slot of a type. */
-  index: number | null;
-}
-
-/**
- * Ordered list of table columns derived from coverage settings. Used by the
- * print view, CSV/XLSX exports and the clipboard TSV so every tabular output
- * respects the configured counts.
- */
-export function scheduleColumns(coverage: CoverageSettings): ScheduleColumn[] {
-  const cols: ScheduleColumn[] = [];
-  for (let i = 0; i < coverage.rounderCount; i++) {
-    cols.push({ label: `R${i + 1}`, shiftType: "ROUNDER", index: i + 1 });
-  }
-  for (let i = 0; i < coverage.dayAdmitCount; i++) {
-    cols.push({
-      label: coverage.dayAdmitCount > 1 ? `Day Admit ${i + 1}` : "Day Admit",
-      shiftType: "ADMIN",
-      index: coverage.dayAdmitCount > 1 ? i + 1 : null,
-    });
-  }
-  for (let i = 0; i < coverage.nightAdmit1Count; i++) {
-    cols.push({
-      label: coverage.nightAdmit1Count > 1 ? `Night 1.${i + 1}` : "Night 1",
-      shiftType: "NIGHT_ADMIT_1",
-      index: coverage.nightAdmit1Count > 1 ? i + 1 : null,
-    });
-  }
-  for (let i = 0; i < coverage.nightAdmit2Count; i++) {
-    cols.push({
-      label: coverage.nightAdmit2Count > 1 ? `Night 2.${i + 1}` : "Night 2",
-      shiftType: "NIGHT_ADMIT_2",
-      index: coverage.nightAdmit2Count > 1 ? i + 1 : null,
-    });
-  }
-  return cols;
-}
-
-export const NIGHT_TYPES: ShiftType[] = ["NIGHT_ADMIT_1", "NIGHT_ADMIT_2"];
-
-export function isNightType(type: ShiftType): boolean {
-  return type === "NIGHT_ADMIT_1" || type === "NIGHT_ADMIT_2";
-}
-
-export const SHIFT_LABELS: Record<ShiftType, string> = {
-  ROUNDER: "Rounder",
-  ADMIN: "Admin",
-  NIGHT_ADMIT_1: "Night Admit 1",
-  NIGHT_ADMIT_2: "Night Admit 2",
-};
-
-/**
- * Generate every empty slot for a month from the coverage settings.
- * Ordering within a day follows the generated definitions (rounders, admin,
- * nights). Defaults to the original 13-slot template when no settings given.
- */
+/** Build every empty slot for a month. */
 export function generateSlots(
   year: number,
   month: number,
-  coverage: CoverageSettings = DEFAULT_COVERAGE
+  templates: ShiftTemplateDef[],
+  holidays: ReadonlySet<string> = new Set(),
+  overrides: CoverageOverrides = {}
 ): ShiftSlot[] {
-  const defs = shiftDefinitions(coverage);
-  const slots: ShiftSlot[] = [];
-  for (const date of monthDates(year, month)) {
-    for (const def of defs) {
-      slots.push({
-        date,
-        endDate: addDaysISO(date, def.endOffset),
-        shiftType: def.shiftType,
-        hospital: "MAIN",
-        rounderIndex: def.rounderIndex,
-        startTime: def.startTime,
-        endTime: def.endTime,
-        physicianId: null,
-        isLocked: false,
-        isManual: false,
-      });
-    }
-  }
-  return slots;
+  return generateSlotsForDates(monthDates(year, month), templates, holidays, overrides);
+}
+
+/** Label for one slot, e.g. "R3" when a template has several that day. */
+export function slotLabel(code: string, slotIndex: number, multiple: boolean): string {
+  return multiple ? `${code}${slotIndex}` : code;
+}
+
+/** Stable key identifying a slot within a day. */
+export function slotKey(date: string, templateKey: string, slotIndex: number): string {
+  return `${date}|${templateKey}|${slotIndex}`;
+}
+
+/** A tabular column for by-day schedule views and exports. */
+export interface ScheduleColumn {
+  /** Template id, or a name-based key for deleted templates. */
+  templateKey: string;
+  slotIndex: number;
+  label: string;
+  locationName: string;
+  locationCode: string;
+  shiftName: string;
+  category: ShiftCategory;
+  color: string;
+}
+
+interface ColumnSource {
+  shiftTemplateId: string | null;
+  shiftName: string;
+  shiftCode: string;
+  locationName: string;
+  locationCode: string;
+  category: ShiftCategory;
+  color: string;
+  slotIndex: number;
+}
+
+/** Key an assignment by template (falls back to snapshot for deleted templates). */
+export function templateKeyOf(a: Pick<ColumnSource, "shiftTemplateId" | "locationName" | "shiftName">): string {
+  return a.shiftTemplateId ?? `deleted:${a.locationName}:${a.shiftName}`;
 }
 
 /**
- * Generate rounder-only slots for one community hospital. Each day gets
- * `rounderCount` ROUNDER slots (07:00–17:00), indexed 1..rounderCount.
+ * Columns for a month, derived from the assignments actually stored (so past
+ * months render correctly even after templates change). Templates supply the
+ * ordering; anything unknown is appended in first-seen order.
  */
-export function generateCommunitySlots(
-  year: number,
-  month: number,
-  hospital: CommunityHospital,
-  rounderCount: number
-): ShiftSlot[] {
-  const slots: ShiftSlot[] = [];
-  if (rounderCount <= 0) return slots;
-  for (const date of monthDates(year, month)) {
-    for (let i = 0; i < rounderCount; i++) {
-      slots.push({
-        date,
-        endDate: date,
-        shiftType: "ROUNDER",
-        hospital,
-        rounderIndex: i + 1,
-        startTime: "07:00",
-        endTime: "17:00",
-        physicianId: null,
-        isLocked: false,
-        isManual: false,
+export function scheduleColumns(
+  assignments: ColumnSource[],
+  templates: Pick<ShiftTemplateDef, "id" | "locationSort" | "sortOrder" | "locationName" | "name">[] = []
+): ScheduleColumn[] {
+  const maxIndex = new Map<string, number>();
+  const sample = new Map<string, ColumnSource>();
+  for (const a of assignments) {
+    const key = templateKeyOf(a);
+    maxIndex.set(key, Math.max(maxIndex.get(key) ?? 0, a.slotIndex));
+    if (!sample.has(key)) sample.set(key, a);
+  }
+  const order = new Map<string, number>();
+  sortTemplates(templates).forEach((t, i) => order.set(t.id, i));
+  const keys = [...sample.keys()].sort((a, b) => {
+    const oa = order.get(a) ?? Number.MAX_SAFE_INTEGER;
+    const ob = order.get(b) ?? Number.MAX_SAFE_INTEGER;
+    return oa - ob;
+  });
+  const cols: ScheduleColumn[] = [];
+  for (const key of keys) {
+    const s = sample.get(key)!;
+    const n = maxIndex.get(key)!;
+    for (let i = 1; i <= n; i++) {
+      cols.push({
+        templateKey: key,
+        slotIndex: i,
+        label: slotLabel(s.shiftCode, i, n > 1),
+        locationName: s.locationName,
+        locationCode: s.locationCode,
+        shiftName: s.shiftName,
+        category: s.category,
+        color: s.color,
       });
     }
   }
-  return slots;
+  return cols;
 }

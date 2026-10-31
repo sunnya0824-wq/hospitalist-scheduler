@@ -31,10 +31,15 @@ export function addDaysISO(iso: string, days: number): string {
   return toISODate(d);
 }
 
-/** True when the ISO date falls on Saturday or Sunday (UTC). */
-export function isWeekend(iso: string): boolean {
-  const day = fromISODate(iso).getUTCDay();
-  return day === 0 || day === 6;
+/** Default weekend: Saturday and Sunday. */
+export const DEFAULT_WEEKEND_DAYS: ReadonlySet<number> = new Set([0, 6]);
+
+/** True when the ISO date falls on a weekend day (Sat/Sun unless configured). */
+export function isWeekend(
+  iso: string,
+  weekendDays: ReadonlySet<number> = DEFAULT_WEEKEND_DAYS
+): boolean {
+  return weekendDays.has(fromISODate(iso).getUTCDay());
 }
 
 /** All ISO date strings within a month, in order. */
@@ -45,4 +50,14 @@ export function monthDates(year: number, month: number): string[] {
     dates.push(toISODate(utcDate(year, month, day)));
   }
   return dates;
+}
+
+/** Weekday of an ISO date: 0 = Sunday … 6 = Saturday (UTC). */
+export function weekdayOf(iso: string): number {
+  return fromISODate(iso).getUTCDay();
+}
+
+/** Whole days from `a` to `b` (positive when b is later). */
+export function daysBetween(a: string, b: string): number {
+  return Math.round((fromISODate(b).getTime() - fromISODate(a).getTime()) / 86_400_000);
 }

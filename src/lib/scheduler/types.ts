@@ -1,4 +1,12 @@
-import type { ShiftType, ShiftPreference, Hospital } from "@prisma/client";
+import type { ShiftPreference } from "@prisma/client";
+
+/**
+ * Shift categories drive eligibility, per-category targets, fairness and the
+ * post-night rest rule. Everything else about a shift is configurable.
+ */
+export type ShiftCategory = "DAY" | "ADMIT" | "NIGHT";
+
+export const SHIFT_CATEGORIES: ShiftCategory[] = ["DAY", "ADMIT", "NIGHT"];
 
 /**
  * A physician's scheduling profile — the subset of fields the scheduler
@@ -11,10 +19,12 @@ export interface SchedulerPhysician {
   desiredShifts: number;
   minShifts: number;
   maxShifts: number;
+  /** Min/max DAY-category shifts (column names kept for compatibility). */
   minRounding: number;
   maxRounding: number;
   minNights: number;
   maxNights: number;
+  /** Min/max ADMIT-category shifts. */
   minAdmin: number;
   maxAdmin: number;
   shiftPreference: ShiftPreference;
@@ -24,10 +34,14 @@ export interface SchedulerPhysician {
   fteMultiplier: number;
   /** Explicit monthly shift target; null → derived from the monthly average. */
   monthlyShiftTarget: number | null;
-  /** Hard cap on consecutive working days across all hospitals. */
+  /** Hard cap on consecutive working days across all locations. */
   maxConsecutiveDays: number;
-  /** Community hospitals this physician may be assigned rounders at. MAIN is implicit. */
-  eligibleHospitals: Set<Hospital>;
+  /** Hard cap on nights worked back to back in one block. */
+  maxConsecutiveNights: number;
+  /** Preferred night block length; null = the organization default. */
+  preferredNightBlock: number | null;
+  /** Every location id this physician may work (open-to-all ones included). */
+  eligibleLocations: Set<string>;
   unavailableDates: Set<string>;
   preferredDates: Set<string>;
   /** ISO dates the physician requested off — a hard block on any shift. */
@@ -38,6 +52,7 @@ export interface SchedulerPhysician {
   avoidsNights: boolean;
   prefersWeekends: boolean;
   avoidsWeekends: boolean;
+  /** Applies to ADMIT-category shifts. */
   prefersDayAdmit: boolean;
   avoidsDayAdmit: boolean;
   /** Weekday numbers (0 = Sun … 6 = Sat) the physician would rather avoid. */
@@ -48,18 +63,39 @@ export interface SchedulerPhysician {
   maxWeekendsPerMonth: number | null;
 }
 
-/** A single shift slot to be filled (13 per calendar day). */
+/** Organization-wide rules the engine enforces. */
+export interface SchedulerRules {
+  /** Full days off after the last night of a block (0 = none). */
+  restDaysAfterNights: number;
+  /** Nights are grouped into blocks of about this length. */
+  preferredNightBlock: number;
+  /** Weekday numbers counted as weekend (default Sat + Sun). */
+  weekendDays: Set<number>;
+  /** ISO dates treated as holidays. */
+  holidays: Set<string>;
+}
+
+/** A single shift slot to be filled. */
 export interface ShiftSlot {
-  /** ISO date string (YYYY-MM-DD) the shift starts. */
+  /** ISO date (YYYY-MM-DD) the shift starts. */
   date: string;
-  /** ISO date string the shift ends (night shifts cross midnight). */
+  /** ISO date the shift ends (overnight shifts end the next day). */
   endDate: string;
-  shiftType: ShiftType;
-  /** Which hospital this slot belongs to. Community hospitals are rounder-only. */
-  hospital: Hospital;
-  rounderIndex: number | null;
+  shiftTemplateId: string;
+  locationId: string;
+  category: ShiftCategory;
+  /** 1..N when the template needs N slots that day. */
+  slotIndex: number;
   startTime: string;
   endTime: string;
+  shiftName: string;
+  shiftCode: string;
+  locationName: string;
+  locationCode: string;
+  color: string;
+  /** Ordering hints: location order, then template order. */
+  locationSort: number;
+  templateSort: number;
   /** Pre-assigned physician (locked or manual) — never overwritten. */
   physicianId: string | null;
   isLocked: boolean;
@@ -77,7 +113,9 @@ export interface PhysicianStats {
   physicianId: string;
   fullName: string;
   total: number;
+  /** DAY-category shifts (name kept for stored-summary compatibility). */
   rounding: number;
+  /** ADMIT-category shifts. */
   admin: number;
   nights: number;
   weekends: number;
@@ -89,17 +127,24 @@ export interface PhysicianStats {
   maxShifts: number;
   belowMin: boolean;
   aboveMax: boolean;
-  /** Soft monthly caps (null = none) for utilization display. */
+  nightEligible: boolean;
+  prefersNights: boolean;
+  /** Longest night block this month. */
+  longestNightBlock: number;
   maxNightsPerMonth: number | null;
   maxWeekendsPerMonth: number | null;
 }
 
-/** A slot that no eligible physician could fill (e.g. too many off). */
+/** A slot that no eligible physician could fill. */
 export interface UnfilledSlot {
   date: string;
-  hospital: Hospital;
-  shiftType: ShiftType;
-  rounderIndex: number | null;
+  locationId: string;
+  locationName: string;
+  shiftTemplateId: string;
+  shiftName: string;
+  shiftCode: string;
+  category: ShiftCategory;
+  slotIndex: number;
 }
 
 export interface SchedulerResult {
@@ -107,16 +152,27 @@ export interface SchedulerResult {
   warnings: string[];
   stats: PhysicianStats[];
   fairnessScore: number;
+  /** Components of the fairness score, each 0–100. */
+  fairnessBreakdown: { workload: number; nights: number; weekends: number };
   unfilledSlots: UnfilledSlot[];
 }
 
+/** A shift worked just outside the slot window that still constrains it. */
+export interface PriorShift {
+  physicianId: string;
+  date: string;
+  endDate: string;
+  category: ShiftCategory;
+}
+
 export interface SchedulerOptions {
-  /** When true, hard maxShifts cap may be exceeded to fill coverage. */
+  /** When true, the hard maxShifts cap may be exceeded to fill coverage. */
   allowOverMax?: boolean;
   /**
-   * Night shifts worked on dates OUTSIDE the slot window (e.g. the last days
-   * of the prior month) whose two-day post-night rest reaches into the window.
-   * Each entry blocks date+1 and date+2 for that physician.
+   * Shifts worked just before the window (end of the prior month). They count
+   * toward rest, night blocks and consecutive days, but not toward totals.
    */
-  priorNights?: { physicianId: string; date: string }[];
+  priorShifts?: PriorShift[];
+  /** Rules; anything omitted falls back to DEFAULT_RULES. */
+  rules?: Partial<SchedulerRules>;
 }
