@@ -1,190 +1,161 @@
 # Hospitalist Scheduler
 
-A production-ready web app for generating fair, constraint-aware **monthly
-hospitalist coverage schedules**. It models a hospitalist group's daily
-staffing needs (10 rounders, 1 admin, 2 night admitters per calendar day) and
-builds a complete month of assignments using a greedy + scoring algorithm that
-balances workload, respects eligibility and time-off, and surfaces any coverage
-gaps or constraint violations.
+A web app that builds fair, rule-aware monthly coverage schedules for any
+hospitalist group: any number of hospitals or sites, any shift types, your own
+rules and holidays.
 
 ## Features
 
-- **Dashboard** — month picker, coverage summary, one-click schedule
-  generation, and export shortcuts.
-- **Physicians** — full CRUD with workload targets, night/admin eligibility,
-  shift preferences, and unavailable/preferred date pickers. Includes
-  **Seed demo data** and **Clear all data** buttons.
-- **Schedule** — day-by-day and by-physician views with color-coded shift
-  chips, manual editing (change physician, clear, lock), a **Regenerate**
-  button that preserves locked + manual slots, and a warnings panel.
-- **Analytics** — totals per physician, night/weekend/admin distribution,
-  fairness score, and a constraint-violation list.
-- **Exports** — CSV, XLSX (via the `xlsx` package), a print-friendly page with
-  `@media print` styling, and copy-to-clipboard (TSV).
+- **Settings** — set up your organization once:
+  - **Locations**: hospitals, campuses or service lines. Each is open to every
+    physician or limited to the ones you tick.
+  - **Shift types** per location: name, short label, hours (overnight shifts
+    are detected automatically), slots needed for each weekday, an optional
+    holiday count, color, and a category (Day, Admitting or Night).
+  - **Rules**: rest days after a block of nights, preferred night-block length,
+    which days count as the weekend.
+  - **Holidays**: US federal holidays are calculated for any year. Turn any of
+    them off, and add your own (one-off or every year).
+- **Physicians** — workload targets (desired/min/max, FTE, monthly target),
+  per-category limits, night/admitting eligibility, which restricted locations
+  they can work, max days and nights in a row, preferred night-block length,
+  soft preferences (nights, weekends, admitting, weekdays to avoid, monthly
+  caps), unavailable/preferred dates and time-off requests, and a personal
+  calendar (ICS) feed.
+- **Dashboard** — pick a month, adjust this month's coverage (override any
+  shift type's slots per day), generate, see gaps and the fairness score.
+- **Schedule** — by day or by physician; change, clear, lock or swap slots.
+  Regenerating keeps locked and manually edited slots. Manual changes are
+  checked against the same rules as the generator.
+- **Analytics** — totals per physician, nights, weekends, holidays, longest
+  night block, fairness breakdown and rule warnings.
+- **Exports** — CSV, XLSX, print view, per-physician PDF, copy to clipboard.
+
+## How the scheduler works
+
+Code: [`src/lib/scheduler/`](src/lib/scheduler). Greedy assignment with scoring:
+
+1. **Build slots** from your shift types for each day of the month (weekday
+   counts, holiday counts, or this month's override).
+2. **Seed fixed work**: locked/manual slots, plus shifts worked in the last
+   three weeks of the previous month (so rest and night blocks carry over).
+3. **Fill hardest first**: nights (chronologically, so blocks form), then
+   admitting, then day shifts.
+4. For each slot, every physician is checked against the **hard rules**; the
+   one with the best **score** gets it. If nobody qualifies, the slot stays
+   empty and is reported as a coverage gap.
+
+**Hard rules** (never broken by the generator):
+
+- One shift starting per physician per day; an overnight shift blocks the
+  next morning.
+- Time off and unavailable dates; night and admitting eligibility; location
+  eligibility.
+- **Night blocks**: nights may run back to back up to the physician's
+  *max nights in a row*. After the **last** night of a block, the physician
+  gets the configured number of rest days.
+- Max days in a row; max shifts per month (unless "allow over max" is on).
+
+**Scoring** (soft) balances: distance from each physician's desired and target
+shifts, per-category min/max, night/weekend/holiday fairness, preferences and
+soft caps, and a strong pull to continue a night block until it reaches the
+preferred length (per physician, or the group default).
+
+**Fairness score** (0–100) is the average of three parts:
+workload (shifts relative to each person's own target), nights (spread among
+night-eligible physicians who have *not* asked for nights, relative to target)
+and weekends (weekend share of each person's shifts).
 
 ## Tech stack
 
-- [Next.js 14](https://nextjs.org/) (App Router) + React 18
-- TypeScript (strict mode)
-- Tailwind CSS
-- Prisma ORM + PostgreSQL
-- `xlsx` for spreadsheet export
-- Node.js >= 20
-
-## Daily coverage model
-
-Every calendar day requires **13 assignments**:
-
-| Shift          | Time            | Notes                       |
-| -------------- | --------------- | --------------------------- |
-| Rounder 1–10   | 07:00 – 17:00   | 10 day rounding shifts      |
-| Admin          | 12:00 – 21:00   | 1 admin shift               |
-| Night Admit 1  | 17:00 – 05:00   | crosses midnight            |
-| Night Admit 2  | 19:00 – 07:00   | crosses midnight            |
-
-Night shifts span two calendar days; each assignment stores both a start date
-and an end date.
+Next.js 14 (App Router), React 18, TypeScript (strict), Tailwind CSS,
+Prisma ORM + PostgreSQL, `xlsx`. Node.js 20 or newer.
 
 ## Local setup
 
 ```bash
-# 1. Install dependencies (runs `prisma generate` via postinstall)
-npm install
-
-# 2. Configure the database connection
-cp .env.example .env
-#   then edit .env and set DATABASE_URL to your local Postgres instance
-
-# 3. Create the schema
-npx prisma migrate dev --name init
-
-# 4. Load 20 demo physicians
-npm run seed
-
-# 5. Start the dev server
-npm run dev
+npm install                 # also runs prisma generate
+cp .env.example .env        # set DATABASE_URL to your Postgres
+npx prisma migrate deploy   # create the tables
+npm run seed                # optional: 20 demo physicians + demo sites
+npm run dev                 # http://localhost:3000
 ```
 
-Open http://localhost:3000, go to **Physicians → Seed demo data** (or run
-`npm run seed`), then **Dashboard → Generate Schedule**.
+A fresh install starts with one location ("Main Hospital") and four shift
+types. Change them under **Settings**.
 
-## Database schema overview
+## Upgrading from the June 2026 version
 
-| Model                   | Purpose                                                        |
-| ----------------------- | -------------------------------------------------------------- |
-| `Physician`             | Roster entry with workload targets and eligibility flags.      |
-| `ScheduleMonth`         | One row per (year, month); tracks status and generation time.  |
-| `ShiftAssignment`       | A single slot: date, end date, shift type, physician, flags.   |
-| `PhysicianAvailability` | Unavailable / preferred dates per physician.                   |
-| `PhysicianPreference`   | Optional per-month overrides of desired/min/max shifts.        |
-| `ScheduleGenerationRun` | Audit log of each generation run with warnings + stats JSON.   |
+The `20261031000000_generic_model` migration converts the old fixed setup
+without losing data:
 
-`ShiftType` enum: `ROUNDER`, `ADMIN`, `NIGHT_ADMIT_1`, `NIGHT_ADMIT_2`.
+- "Main Hospital" plus any of Sparrow Carson / Eaton / Clinton that were in
+  use become locations (rename them in Settings).
+- Rounder / Day Admitting / Night Admit 1 / Night Admit 2 become shift types,
+  with slot counts taken from the most recently scheduled month.
+- Each month's saved coverage counts become that month's overrides.
+- Every existing assignment, lock and eligibility flag is kept.
 
-## How the scheduler works
+It runs inside one transaction: it either fully applies or changes nothing.
+On Railway it runs automatically at start-up (`npm start`).
 
-The engine lives in [`src/lib/scheduler/`](src/lib/scheduler). It uses a
-**greedy + scoring** strategy:
+## Tests
 
-1. **Generate slots** — build all `13 × daysInMonth` empty shift slots.
-2. **Seed fixed slots** — any locked or manually edited assignments from a prior
-   run are reinserted and count toward fairness/limits.
-3. **Assign most-constrained first** — fill `NIGHT_ADMIT_1` / `NIGHT_ADMIT_2`,
-   then `ADMIN`, then the 10 `ROUNDER` slots, walking chronologically.
-4. For each slot, every active physician is checked against the **hard
-   constraints**; the eligible physician with the highest **soft score** wins.
+```bash
+npm test                    # engine, rules, holidays, every month 2026–2076
+npm run test:integration    # service layer against a real database*
+./scripts/test-legacy-upgrade.sh   # upgrade a pre-generic database*
+```
 
-**Hard constraints** (a physician failing any of these cannot take the slot):
+\* Needs `DATABASE_URL` pointing at an empty, disposable database (the
+integration tests delete everything in it). CI runs all three plus typecheck,
+lint and build on every push.
 
-- No double-booking on the same calendar day.
-- No day shift on the rest day immediately after a night shift.
-- No overnight whose end date collides with existing work.
-- Respect explicit unavailable dates.
-- Respect night/admin eligibility.
-- Respect `maxShifts` (unless the run sets the override flag).
-- Never overwrite locked assignments.
+The tests include an independent rule checker that re-verifies every hard
+rule on generated schedules, so a scheduler change that breaks a rule fails.
 
-**Soft scoring** (higher = better fit) blends:
+## Deployment (Railway)
 
-- Distance from each physician's desired shift count.
-- A large boost while below the contractual minimum; penalty above max.
-- Per-category min/max targeting (nights, admin, rounding).
-- Night and weekend **fairness** (penalize physicians already above the group
-  average).
-- Preferred-date boosts and `MORE`/`FEWER` preference tilt.
-- A rest-after-night bonus and a penalty for runs longer than 5 consecutive
-  days.
+1. Create a Railway project with the **PostgreSQL** plugin.
+2. Create a service from this repo; Railway injects `DATABASE_URL`.
+3. Build: `npm run build`. Start: `npm start` (applies migrations, then starts).
 
-The result includes the assignments, a list of **warnings** (coverage gaps and
-constraint violations), **per-physician stats**, and an overall **fairness
-score** (0–100, derived from the coefficient of variation of total shifts and
-nights).
+| Variable       | Required | Description                            |
+| -------------- | -------- | -------------------------------------- |
+| `DATABASE_URL` | yes      | PostgreSQL connection string.          |
+| `PORT`         | no       | Port for `next start` (default 3000).  |
 
-Slots with no eligible physician are left unfilled and recorded as coverage
-gaps rather than forcing an invalid assignment.
+## Long-term maintenance
 
-## API routes
+- Nothing in the app is tied to a particular year: dates are computed, and
+  the tests generate every month from 2026 through 2076.
+- No web app runs for decades untouched. Plan to update Node.js, Next.js,
+  Prisma and Postgres to supported versions every year or two; the test suite
+  is there to confirm nothing broke.
+- Past schedules store a snapshot of shift and location names, so editing or
+  deleting shift types later never rewrites history.
 
-| Method | Route                          | Purpose                          |
-| ------ | ------------------------------ | -------------------------------- |
-| GET    | `/api/physicians`              | List physicians.                 |
-| POST   | `/api/physicians`              | Create a physician.              |
-| PUT    | `/api/physicians/[id]`         | Update a physician.              |
-| DELETE | `/api/physicians/[id]`         | Delete a physician.              |
-| POST   | `/api/schedule/generate`       | Generate/regenerate a month.     |
-| GET    | `/api/schedule/[year]/[month]` | Read a month's schedule.         |
-| PATCH  | `/api/assignments/[id]`        | Edit / lock / clear a slot.      |
-| POST   | `/api/seed`                    | Seed 20 demo physicians.         |
-| POST   | `/api/clear-all`               | Wipe all data.                   |
-| GET    | `/api/export/csv`              | Download CSV.                    |
-| GET    | `/api/export/xlsx`             | Download XLSX.                   |
+## API
 
-## Railway deployment
-
-This app deploys cleanly on [Railway](https://railway.app) with the PostgreSQL
-plugin (Nixpacks auto-detects Next.js + Prisma).
-
-1. Create a new Railway project and add the **PostgreSQL** plugin.
-2. Create a service from this GitHub repo.
-3. Railway injects `DATABASE_URL` automatically when the Postgres plugin is
-   attached to the service. (If not, copy it from the plugin's Connect tab into
-   the service variables.)
-4. Build command: `npm run build` (`prisma generate && next build`).
-5. Start command: `npm start` — this runs `prisma migrate deploy` to apply
-   migrations, then `next start -p $PORT`.
-6. After the first deploy, optionally seed demo data by hitting **Physicians →
-   Seed demo data** in the UI, or run `npm run seed` against the production
-   `DATABASE_URL`.
-
-The build does **not** require a live database — `prisma generate` runs at build
-time and `prisma migrate deploy` runs at startup.
-
-## Environment variables
-
-| Variable       | Required | Description                              |
-| -------------- | -------- | ---------------------------------------- |
-| `DATABASE_URL` | yes      | PostgreSQL connection string.            |
-| `PORT`         | no       | Port for `next start` (defaults 3000).   |
-
-See [`.env.example`](.env.example).
-
-## Scripts
-
-| Script            | Description                                  |
-| ----------------- | -------------------------------------------- |
-| `npm run dev`     | Start the dev server.                        |
-| `npm run build`   | `prisma generate && next build`.             |
-| `npm start`       | `prisma migrate deploy && next start`.       |
-| `npm run seed`    | Seed 20 demo physicians.                     |
-| `npm run lint`    | Run ESLint.                                  |
-
-## Future improvements
-
-- Optimization-based scheduling (OR-Tools / linear programming) for provably
-  optimal fairness instead of greedy heuristics.
-- Authentication and role-based access (scheduler vs. physician views).
-- Multi-site / multi-team support.
-- Structured vacation and PTO request workflows.
-- Google Calendar / Outlook sync and per-physician calendar feeds.
-- Email distribution of published schedules.
-- Physician self-service portal for swaps and availability.
+| Method            | Route                                  | Purpose                                    |
+| ----------------- | -------------------------------------- | ------------------------------------------ |
+| GET               | `/api/config`                          | Settings, locations, shift types, holidays |
+| PUT               | `/api/settings`                        | Update rules and holiday options           |
+| POST              | `/api/locations`                       | Add a location                             |
+| PUT, DELETE       | `/api/locations/[id]`                  | Edit / delete a location                   |
+| POST              | `/api/shift-templates`                 | Add a shift type                           |
+| PUT, DELETE       | `/api/shift-templates/[id]`            | Edit / delete a shift type                 |
+| GET, POST         | `/api/holidays`                        | Holidays for a year / add a custom one     |
+| DELETE            | `/api/holidays/[id]`                   | Remove a custom holiday                    |
+| GET, POST         | `/api/physicians`                      | List / create physicians                   |
+| PUT, DELETE       | `/api/physicians/[id]`                 | Update / delete a physician                |
+| GET, POST, DELETE | `/api/physicians/[id]/time-off`        | Time-off requests                          |
+| POST              | `/api/physicians/[id]/reset-ics`       | New calendar feed URL                      |
+| GET               | `/api/ics/[token]`                     | Personal calendar feed                     |
+| POST              | `/api/schedule/generate`               | Generate a month (optional overrides)      |
+| GET               | `/api/schedule/[year]/[month]`         | Read a month                               |
+| PATCH             | `/api/assignments/[id]`                | Change / lock / clear a slot               |
+| POST              | `/api/schedule/swap`                   | Swap two slots (rule-checked)              |
+| POST              | `/api/schedule/unlock-all`             | Unlock a month                             |
+| GET               | `/api/export/csv`, `/api/export/xlsx`  | Download a month                           |
+| POST              | `/api/seed`, `/api/clear-all`          | Demo data / wipe physicians and schedules  |
