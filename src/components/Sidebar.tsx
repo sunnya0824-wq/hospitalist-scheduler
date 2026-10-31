@@ -8,6 +8,7 @@ import {
   UsersIcon,
   CalendarIcon,
   BarChartIcon,
+  SettingsIcon,
 } from "@/components/icons";
 
 const NAV: {
@@ -19,6 +20,7 @@ const NAV: {
   { href: "/physicians", label: "Physicians", Icon: UsersIcon },
   { href: "/schedule", label: "Schedule", Icon: CalendarIcon },
   { href: "/analytics", label: "Analytics", Icon: BarChartIcon },
+  { href: "/settings", label: "Settings", Icon: SettingsIcon },
 ];
 
 export function Sidebar() {

@@ -3,127 +3,149 @@ import type {
   PhysicianDTO,
   GenerateResultDTO,
   TimeOffDTO,
+  ConfigDTO,
+  SettingsDTO,
+  LocationDTO,
+  ShiftTemplateDTO,
 } from "./api-types";
 
-export async function fetchMonth(
-  year: number,
-  month: number
-): Promise<MonthScheduleDTO> {
-  const res = await fetch(`/api/schedule/${year}/${month}`, {
+async function call<T>(url: string, init?: RequestInit, fallback = "Request failed"): Promise<T> {
+  const res = await fetch(url, {
     cache: "no-store",
+    ...init,
+    headers: init?.body ? { "Content-Type": "application/json", ...(init?.headers ?? {}) } : init?.headers,
   });
-  if (!res.ok) throw new Error("Failed to load schedule");
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || fallback);
+  }
   return res.json();
 }
 
-export interface CoverageInput {
-  rounderCount?: number;
-  dayAdmitCount?: number;
-  nightAdmit1Count?: number;
-  nightAdmit2Count?: number;
+const json = (method: string, body: unknown): RequestInit => ({ method, body: JSON.stringify(body) });
+
+// --- Schedule --------------------------------------------------------------
+
+export function fetchMonth(year: number, month: number): Promise<MonthScheduleDTO> {
+  return call(`/api/schedule/${year}/${month}`, undefined, "Failed to load schedule");
 }
 
-export interface CommunityCoverageInput {
-  carsonRounderCount?: number;
-  eatonRounderCount?: number;
-  clintonRounderCount?: number;
-}
-
-export async function generateMonth(
+/**
+ * Generate a month. `coverageOverrides` ({ templateId: slotsPerDay }) replaces
+ * the month's saved overrides; omit it to keep them as they are.
+ */
+export function generateMonth(
   year: number,
   month: number,
   allowOverMax = false,
-  coverage?: CoverageInput,
-  community?: CommunityCoverageInput
+  coverageOverrides?: Record<string, number>
 ): Promise<GenerateResultDTO> {
-  const res = await fetch("/api/schedule/generate", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      year,
-      month,
-      allowOverMax,
-      ...(coverage ?? {}),
-      ...(community ?? {}),
-    }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || "Failed to generate schedule");
-  }
-  return res.json();
+  return call("/api/schedule/generate", json("POST", { year, month, allowOverMax, coverageOverrides }), "Failed to generate schedule");
 }
 
-export async function fetchPhysicians(): Promise<PhysicianDTO[]> {
-  const res = await fetch("/api/physicians", { cache: "no-store" });
-  if (!res.ok) throw new Error("Failed to load physicians");
-  return res.json();
+export function swapAssignments(a: string, b: string): Promise<{ ok: true }> {
+  return call("/api/schedule/swap", json("POST", { a, b }), "Swap failed");
 }
 
-export async function fetchTimeOff(physicianId: string): Promise<TimeOffDTO[]> {
-  const res = await fetch(`/api/physicians/${physicianId}/time-off`, {
-    cache: "no-store",
-  });
-  if (!res.ok) throw new Error("Failed to load time off");
-  return res.json();
-}
-
-export async function saveTimeOff(
-  physicianId: string,
-  dates: string[],
-  note?: string
-): Promise<void> {
-  const res = await fetch(`/api/physicians/${physicianId}/time-off`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ dates, note }),
-  });
-  if (!res.ok) throw new Error("Failed to save time off");
-}
-
-export async function deleteTimeOff(
-  physicianId: string,
-  dates: string[]
-): Promise<void> {
-  const res = await fetch(`/api/physicians/${physicianId}/time-off`, {
-    method: "DELETE",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ dates }),
-  });
-  if (!res.ok) throw new Error("Failed to remove time off");
-}
-
-/** Swap the physicians of two assignments. Throws with the server reason on 400. */
-export async function swapAssignments(a: string, b: string): Promise<void> {
-  const res = await fetch("/api/schedule/swap", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ a, b }),
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.error || "Swap failed");
-  }
-}
-
-/** Clear the lock flag on every assignment in a month. Returns the count. */
 export async function unlockAll(year: number, month: number): Promise<number> {
-  const res = await fetch("/api/schedule/unlock-all", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ year, month }),
-  });
-  if (!res.ok) throw new Error("Failed to unlock assignments");
-  const data = await res.json();
+  const data = await call<{ unlocked?: number }>("/api/schedule/unlock-all", json("POST", { year, month }), "Failed to unlock");
   return data.unlocked ?? 0;
 }
 
-/** Rotate a physician's ICS calendar token. Returns the new token. */
+export interface AssignmentPatchResult {
+  id: string;
+  physicianId: string | null;
+  physicianName: string | null;
+  isManual: boolean;
+  isLocked: boolean;
+  isAutoGenerated: boolean;
+  warnings: string[];
+}
+
+export function patchAssignment(
+  id: string,
+  body: { physicianId?: string | null; isLocked?: boolean; clear?: boolean }
+): Promise<AssignmentPatchResult> {
+  return call(`/api/assignments/${id}`, json("PATCH", body), "Failed to update assignment");
+}
+
+// --- Physicians ------------------------------------------------------------
+
+export function fetchPhysicians(): Promise<PhysicianDTO[]> {
+  return call("/api/physicians", undefined, "Failed to load physicians");
+}
+
+export function createPhysician(body: Partial<PhysicianDTO>): Promise<{ id: string }> {
+  return call("/api/physicians", json("POST", body), "Failed to create physician");
+}
+
+export function updatePhysician(id: string, body: Partial<PhysicianDTO>): Promise<{ ok: true }> {
+  return call(`/api/physicians/${id}`, json("PUT", body), "Failed to save physician");
+}
+
+export function deletePhysician(id: string): Promise<{ ok: true }> {
+  return call(`/api/physicians/${id}`, { method: "DELETE" }, "Failed to delete physician");
+}
+
+export function fetchTimeOff(physicianId: string): Promise<TimeOffDTO[]> {
+  return call(`/api/physicians/${physicianId}/time-off`, undefined, "Failed to load time off");
+}
+
+export async function saveTimeOff(physicianId: string, dates: string[], note?: string): Promise<void> {
+  await call(`/api/physicians/${physicianId}/time-off`, json("POST", { dates, note }), "Failed to save time off");
+}
+
+export async function deleteTimeOff(physicianId: string, dates: string[]): Promise<void> {
+  await call(`/api/physicians/${physicianId}/time-off`, json("DELETE", { dates }), "Failed to remove time off");
+}
+
 export async function resetIcsToken(physicianId: string): Promise<string> {
-  const res = await fetch(`/api/physicians/${physicianId}/reset-ics`, {
-    method: "POST",
-  });
-  if (!res.ok) throw new Error("Failed to reset calendar URL");
-  const data = await res.json();
-  return data.icsToken as string;
+  const data = await call<{ icsToken: string }>(`/api/physicians/${physicianId}/reset-ics`, { method: "POST" }, "Failed to reset calendar URL");
+  return data.icsToken;
+}
+
+// --- Configuration ---------------------------------------------------------
+
+export function fetchConfig(): Promise<ConfigDTO> {
+  return call("/api/config", undefined, "Failed to load settings");
+}
+
+export function saveSettings(body: Partial<SettingsDTO>): Promise<SettingsDTO> {
+  return call("/api/settings", json("PUT", body), "Failed to save settings");
+}
+
+export function createLocation(body: Partial<Omit<LocationDTO, "id" | "templates">>): Promise<{ id: string }> {
+  return call("/api/locations", json("POST", body), "Failed to add location");
+}
+
+export function updateLocation(id: string, body: Partial<Omit<LocationDTO, "id" | "templates">>): Promise<{ ok: true }> {
+  return call(`/api/locations/${id}`, json("PUT", body), "Failed to save location");
+}
+
+export function deleteLocation(id: string): Promise<{ ok: true }> {
+  return call(`/api/locations/${id}`, { method: "DELETE" }, "Failed to delete location");
+}
+
+export function createShiftTemplate(body: Partial<Omit<ShiftTemplateDTO, "id">> & { locationId: string }): Promise<{ id: string }> {
+  return call("/api/shift-templates", json("POST", body), "Failed to add shift type");
+}
+
+export function updateShiftTemplate(id: string, body: Partial<Omit<ShiftTemplateDTO, "id" | "locationId">>): Promise<{ ok: true }> {
+  return call(`/api/shift-templates/${id}`, json("PUT", body), "Failed to save shift type");
+}
+
+export function deleteShiftTemplate(id: string): Promise<{ ok: true }> {
+  return call(`/api/shift-templates/${id}`, { method: "DELETE" }, "Failed to delete shift type");
+}
+
+export function fetchHolidays(year: number): Promise<{ date: string; name: string }[]> {
+  return call(`/api/holidays?year=${year}`, undefined, "Failed to load holidays");
+}
+
+export function createHoliday(body: { date: string; name: string; recurring: boolean }): Promise<{ id: string }> {
+  return call("/api/holidays", json("POST", body), "Failed to add holiday");
+}
+
+export function deleteHoliday(id: string): Promise<{ ok: true }> {
+  return call(`/api/holidays/${id}`, { method: "DELETE" }, "Failed to delete holiday");
 }

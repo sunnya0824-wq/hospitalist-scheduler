@@ -12,12 +12,14 @@ export function sanitize(fields: Record<string, unknown>) {
     "maxAdmin",
     "fteMultiplier",
     "maxConsecutiveDays",
+    "maxConsecutiveNights",
   ];
   // Numeric fields that may be cleared to null (no value set).
   const nullableNumeric = [
     "monthlyShiftTarget",
     "maxNightsPerMonth",
     "maxWeekendsPerMonth",
+    "preferredNightBlock",
   ];
   const booleanPrefs = [
     "prefersNights",
@@ -33,9 +35,6 @@ export function sanitize(fields: Record<string, unknown>) {
     "shiftPreference",
     "nightEligible",
     "adminEligible",
-    "canWorkCarson",
-    "canWorkEaton",
-    "canWorkClinton",
     "notes",
     ...booleanPrefs,
     ...numeric,
@@ -84,14 +83,14 @@ export function validatePreferences(
   const pairs: [string, string, string][] = [
     ["prefersNights", "avoidsNights", "nights"],
     ["prefersWeekends", "avoidsWeekends", "weekends"],
-    ["prefersDayAdmit", "avoidsDayAdmit", "day admitting"],
+    ["prefersDayAdmit", "avoidsDayAdmit", "admitting"],
   ];
   for (const [prefKey, avoidKey, label] of pairs) {
     if (fields[prefKey] === true && fields[avoidKey] === true) {
       return `Cannot both prefer and avoid ${label}`;
     }
   }
-  for (const key of ["maxNightsPerMonth", "maxWeekendsPerMonth"]) {
+  for (const key of ["maxNightsPerMonth", "maxWeekendsPerMonth", "preferredNightBlock"]) {
     if (!(key in fields)) continue;
     const v = fields[key];
     if (v === null || v === "" || v === undefined) continue;
@@ -109,6 +108,33 @@ export function validatePreferences(
     ) {
       return "avoidWeekdays must be an object mapping weekday (0-6) to boolean";
     }
+  }
+  return null;
+}
+
+/** Coerce a client-sent location id list (restricted locations). */
+export function coerceLocationIds(raw: unknown): string[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return [...new Set(raw.filter((x): x is string => typeof x === "string" && x.length > 0))];
+}
+
+/** Basic numeric sanity checks shared by create and update. */
+export function validateNumbers(fields: Record<string, unknown>): string | null {
+  const positive = ["maxConsecutiveDays", "maxConsecutiveNights"];
+  for (const key of positive) {
+    if (!(key in fields)) continue;
+    const n = Number(fields[key]);
+    if (!Number.isInteger(n) || n < 1 || n > 31) return `${key} must be a whole number from 1 to 31`;
+  }
+  const nonNegative = ["desiredShifts", "minShifts", "maxShifts", "minRounding", "maxRounding", "minNights", "maxNights", "minAdmin", "maxAdmin"];
+  for (const key of nonNegative) {
+    if (!(key in fields)) continue;
+    const n = Number(fields[key]);
+    if (!Number.isFinite(n) || n < 0) return `${key} must be zero or more`;
+  }
+  if ("fteMultiplier" in fields) {
+    const n = Number(fields.fteMultiplier);
+    if (!Number.isFinite(n) || n < 0 || n > 2) return "FTE must be between 0 and 2";
   }
   return null;
 }

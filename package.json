@@ -12,7 +12,8 @@
     "postinstall": "prisma generate",
     "seed": "tsx prisma/seed.ts",
     "lint": "next lint",
-    "test": "node --import tsx --test tests/*.test.ts"
+    "test": "node --import tsx --test tests/scheduler.test.ts",
+    "test:integration": "node --import tsx --test --test-concurrency=1 tests/integration.test.ts"
   },
   "prisma": {
     "seed": "tsx prisma/seed.ts"

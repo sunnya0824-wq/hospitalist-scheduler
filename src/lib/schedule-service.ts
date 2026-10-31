@@ -1,32 +1,35 @@
-import type { Prisma, Hospital } from "@prisma/client";
-import type { AssignmentDTO } from "./api-types";
+import type { Prisma } from "@prisma/client";
+import type { AssignmentDTO, MonthCoverageDTO, MonthScheduleDTO, RunDTO } from "./api-types";
 import { prisma } from "./prisma";
 import {
   generateSlots,
-  generateCommunitySlots,
   runScheduler,
   toISODate,
   fromISODate,
   utcDate,
-  normalizeCoverage,
-  normalizeCommunityCoverage,
-  DEFAULT_COVERAGE,
-  DEFAULT_COMMUNITY_COVERAGE,
-  COMMUNITY_HOSPITALS,
-  COMMUNITY_COUNT_KEY,
-  type CoverageSettings,
-  type CommunityCoverage,
+  addDaysISO,
+  daysInMonth,
+  normalizeOverrides,
+  templateKeyOf,
+  slotKey,
+  type CoverageOverrides,
   type SchedulerPhysician,
   type ShiftSlot,
   type SchedulerResult,
+  type PriorShift,
 } from "./scheduler";
+import { getLocations, getRules, getSettings, getHolidayMap, toTemplateDefs } from "./config";
 
-/** Load active physicians and shape them for the scheduler engine. */
+/** Load physicians and shape them for the scheduler engine. */
 export async function loadSchedulerPhysicians(): Promise<SchedulerPhysician[]> {
-  const physicians = await prisma.physician.findMany({
-    include: { availability: true, timeOffRequests: true },
-    orderBy: { fullName: "asc" },
-  });
+  const [physicians, openLocations] = await Promise.all([
+    prisma.physician.findMany({
+      include: { availability: true, timeOffRequests: true, locations: true },
+      orderBy: { fullName: "asc" },
+    }),
+    prisma.location.findMany({ where: { openToAll: true }, select: { id: true } }),
+  ]);
+  const openIds = openLocations.map((l) => l.id);
 
   return physicians.map((p) => {
     const unavailableDates = new Set<string>();
@@ -36,9 +39,6 @@ export async function loadSchedulerPhysicians(): Promise<SchedulerPhysician[]> {
       if (a.type === "UNAVAILABLE") unavailableDates.add(iso);
       else preferredDates.add(iso);
     }
-    const timeOffDates = new Set<string>(
-      p.timeOffRequests.map((t) => toISODate(t.date))
-    );
     return {
       id: p.id,
       fullName: p.fullName,
@@ -58,14 +58,12 @@ export async function loadSchedulerPhysicians(): Promise<SchedulerPhysician[]> {
       fteMultiplier: Number(p.fteMultiplier),
       monthlyShiftTarget: p.monthlyShiftTarget,
       maxConsecutiveDays: p.maxConsecutiveDays,
-      eligibleHospitals: new Set<Hospital>([
-        ...(p.canWorkCarson ? (["CARSON"] as const) : []),
-        ...(p.canWorkEaton ? (["EATON"] as const) : []),
-        ...(p.canWorkClinton ? (["CLINTON"] as const) : []),
-      ]),
+      maxConsecutiveNights: p.maxConsecutiveNights,
+      preferredNightBlock: p.preferredNightBlock,
+      eligibleLocations: new Set([...openIds, ...p.locations.map((l) => l.locationId)]),
       unavailableDates,
       preferredDates,
-      timeOffDates,
+      timeOffDates: new Set(p.timeOffRequests.map((t) => toISODate(t.date))),
       prefersNights: p.prefersNights,
       avoidsNights: p.avoidsNights,
       prefersWeekends: p.prefersWeekends,
@@ -79,148 +77,112 @@ export async function loadSchedulerPhysicians(): Promise<SchedulerPhysician[]> {
   });
 }
 
-/** Convert the stored avoidWeekdays Json ({ "0": true, … }) into a Set of weekday numbers. */
+/** Convert stored avoidWeekdays Json ({ "0": true, … }) into a Set. */
 function parseAvoidWeekdays(raw: unknown): Set<number> {
   const out = new Set<number>();
   if (raw && typeof raw === "object" && !Array.isArray(raw)) {
     for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
       const dow = Number(key);
-      if (value === true && Number.isInteger(dow) && dow >= 0 && dow <= 6) {
-        out.add(dow);
-      }
+      if (value === true && Number.isInteger(dow) && dow >= 0 && dow <= 6) out.add(dow);
     }
   }
   return out;
 }
 
-/**
- * Get or create the ScheduleMonth row for a year/month. When coverage settings
- * are supplied they are persisted (updating an existing row before generation).
- */
-export async function getOrCreateMonth(
-  year: number,
-  month: number,
-  coverage?: CoverageSettings,
-  community?: CommunityCoverage
-) {
-  const data = { ...(coverage ?? {}), ...(community ?? {}) };
-  return prisma.scheduleMonth.upsert({
-    where: { year_month: { year, month } },
-    update: data,
-    create: { year, month, ...data },
-  });
+export function monthRange(year: number, month: number): { start: string; end: string } {
+  return {
+    start: toISODate(utcDate(year, month, 1)),
+    end: toISODate(utcDate(year, month, daysInMonth(year, month))),
+  };
 }
 
 /**
- * Generate (or regenerate) a month's schedule. Existing locked or manual
- * assignments are preserved and fed back into the scheduler as fixed slots.
- * Coverage settings, when provided, are saved on the month before generating.
+ * Shifts in the days before a date that still constrain it: rest after a
+ * night block, block length, and days-in-a-row all look back.
+ */
+export async function loadPriorShifts(beforeISO: string, lookbackDays = 21): Promise<PriorShift[]> {
+  const start = fromISODate(addDaysISO(beforeISO, -lookbackDays));
+  const rows = await prisma.shiftAssignment.findMany({
+    where: { date: { gte: start, lt: fromISODate(beforeISO) }, physicianId: { not: null } },
+    select: { physicianId: true, date: true, endDate: true, category: true },
+  });
+  return rows.map((r) => ({
+    physicianId: r.physicianId!,
+    date: toISODate(r.date),
+    endDate: toISODate(r.endDate),
+    category: r.category,
+  }));
+}
+
+/**
+ * Generate (or regenerate) a month. Locked and manually edited slots are kept
+ * and fed back in as fixed. When `overrides` is given it replaces the month's
+ * saved coverage overrides first.
  */
 export async function generateSchedule(
   year: number,
   month: number,
   allowOverMax = false,
-  coverage?: Partial<CoverageSettings>,
-  community?: Partial<CommunityCoverage>
+  overrides?: CoverageOverrides
 ): Promise<SchedulerResult> {
-  const settings = coverage ? normalizeCoverage(coverage) : undefined;
-  const communitySettings = community
-    ? normalizeCommunityCoverage(community)
-    : undefined;
-  const scheduleMonth = await getOrCreateMonth(
-    year,
-    month,
-    settings,
-    communitySettings
-  );
-  const activeCoverage: CoverageSettings = {
-    rounderCount: scheduleMonth.rounderCount,
-    dayAdmitCount: scheduleMonth.dayAdmitCount,
-    nightAdmit1Count: scheduleMonth.nightAdmit1Count,
-    nightAdmit2Count: scheduleMonth.nightAdmit2Count,
-  };
-  const activeCommunity: CommunityCoverage = {
-    carsonRounderCount: scheduleMonth.carsonRounderCount,
-    eatonRounderCount: scheduleMonth.eatonRounderCount,
-    clintonRounderCount: scheduleMonth.clintonRounderCount,
-  };
-  const run = await prisma.scheduleGenerationRun.create({
-    data: { scheduleMonthId: scheduleMonth.id },
+  const scheduleMonth = await prisma.scheduleMonth.upsert({
+    where: { year_month: { year, month } },
+    update: overrides ? { coverageOverrides: normalizeOverrides(overrides) } : {},
+    create: { year, month, coverageOverrides: normalizeOverrides(overrides ?? {}) },
   });
+  const activeOverrides = normalizeOverrides(scheduleMonth.coverageOverrides);
+  const run = await prisma.scheduleGenerationRun.create({ data: { scheduleMonthId: scheduleMonth.id } });
 
-  const physicians = await loadSchedulerPhysicians();
+  const { start, end } = monthRange(year, month);
+  const [physicians, locations, rules, priorShifts, existing] = await Promise.all([
+    loadSchedulerPhysicians(),
+    getLocations(),
+    getRules(start, end),
+    loadPriorShifts(start),
+    prisma.shiftAssignment.findMany({ where: { scheduleMonthId: scheduleMonth.id } }),
+  ]);
 
-  // Preserve locked + manual assignments from any prior run.
-  const existing = await prisma.shiftAssignment.findMany({
-    where: { scheduleMonthId: scheduleMonth.id },
-  });
+  // Locked + manual assignments from a prior run, keyed by slot.
   const preserved = new Map<string, (typeof existing)[number]>();
   for (const a of existing) {
-    if (a.isLocked || a.isManual) {
-      preserved.set(
-        slotKey(toISODate(a.date), a.hospital, a.shiftType, a.rounderIndex),
-        a
-      );
+    if ((a.isLocked || a.isManual) && a.physicianId) {
+      preserved.set(slotKey(toISODate(a.date), templateKeyOf(a), a.slotIndex), a);
     }
   }
 
-  // Build the slot grid: main hospital + each community hospital's rounders.
-  const rawSlots: ShiftSlot[] = [
-    ...generateSlots(year, month, activeCoverage),
-    ...COMMUNITY_HOSPITALS.flatMap((h) =>
-      generateCommunitySlots(year, month, h, activeCommunity[COMMUNITY_COUNT_KEY[h]])
-    ),
-  ];
+  const templates = toTemplateDefs(locations);
+  const slots: ShiftSlot[] = generateSlots(year, month, templates, rules.holidays, activeOverrides).map((slot) => {
+    const keep = preserved.get(slotKey(slot.date, slot.shiftTemplateId, slot.slotIndex));
+    if (!keep) return slot;
+    preserved.delete(slotKey(slot.date, slot.shiftTemplateId, slot.slotIndex));
+    return { ...slot, physicianId: keep.physicianId, isLocked: keep.isLocked, isManual: keep.isManual };
+  });
 
-  // Seed preserved assignments onto matching slots.
-  const slots: ShiftSlot[] = rawSlots.map((slot) => {
-    const keep = preserved.get(
-      slotKey(slot.date, slot.hospital, slot.shiftType, slot.rounderIndex)
+  const result = runScheduler(physicians, slots, { allowOverMax, priorShifts, rules });
+
+  // Locked/manual slots whose template no longer needs them this month.
+  for (const orphan of preserved.values()) {
+    result.warnings.push(
+      `${toISODate(orphan.date)} ${orphan.locationName} ${orphan.shiftName}: locked assignment dropped because that slot no longer exists`
     );
-    if (keep) {
-      return {
-        ...slot,
-        physicianId: keep.physicianId,
-        isLocked: keep.isLocked,
-        isManual: keep.isManual,
-      };
-    }
-    return slot;
-  });
+  }
 
-  // Locked/manual night shifts on the two days before this month still impose
-  // their two-day post-night rest on this month's first days.
-  const monthStart = utcDate(year, month, 1);
-  const windowStart = new Date(monthStart);
-  windowStart.setUTCDate(windowStart.getUTCDate() - 2);
-  const priorNightRows = await prisma.shiftAssignment.findMany({
-    where: {
-      date: { gte: windowStart, lt: monthStart },
-      shiftType: { in: ["NIGHT_ADMIT_1", "NIGHT_ADMIT_2"] },
-      physicianId: { not: null },
-    },
-    select: { date: true, physicianId: true },
-  });
-  const priorNights = priorNightRows.map((r) => ({
-    physicianId: r.physicianId!,
-    date: toISODate(r.date),
-  }));
-
-  const result = runScheduler(physicians, slots, { allowOverMax, priorNights });
-
-  // Persist: wipe old auto-generated rows, then recreate the full grid.
   await prisma.$transaction([
-    prisma.shiftAssignment.deleteMany({
-      where: { scheduleMonthId: scheduleMonth.id },
-    }),
+    prisma.shiftAssignment.deleteMany({ where: { scheduleMonthId: scheduleMonth.id } }),
     prisma.shiftAssignment.createMany({
       data: result.assignments.map((a) => ({
         scheduleMonthId: scheduleMonth.id,
         date: fromISODate(a.date),
         endDate: fromISODate(a.endDate),
-        shiftType: a.shiftType,
-        hospital: a.hospital,
-        rounderIndex: a.rounderIndex,
+        shiftTemplateId: a.shiftTemplateId,
+        locationId: a.locationId,
+        shiftName: a.shiftName,
+        shiftCode: a.shiftCode,
+        category: a.category,
+        locationName: a.locationName,
+        locationCode: a.locationCode,
+        color: a.color,
+        slotIndex: a.slotIndex,
         startTime: a.startTime,
         endTime: a.endTime,
         physicianId: a.physicianId,
@@ -242,6 +204,7 @@ export async function generateSchedule(
         warnings: result.warnings,
         summary: {
           fairnessScore: result.fairnessScore,
+          fairnessBreakdown: result.fairnessBreakdown,
           stats: result.stats,
         } as unknown as Prisma.InputJsonValue,
       },
@@ -251,37 +214,60 @@ export async function generateSchedule(
   return result;
 }
 
-/**
- * Read a month's full schedule with physician names attached, plus the most
- * recent generation run summary (stats + warnings). Returns null assignments
- * as an empty array when the month has never been generated.
- */
-export async function getMonthSchedule(year: number, month: number) {
-  const scheduleMonth = await prisma.scheduleMonth.findUnique({
-    where: { year_month: { year, month } },
-    include: {
-      assignments: {
-        include: { physician: { select: { id: true, fullName: true } } },
-        orderBy: [{ date: "asc" }, { shiftType: "asc" }, { rounderIndex: "asc" }],
+/** Coverage rows (defaults + this month's overrides) for every active template. */
+async function monthCoverage(overridesRaw: unknown): Promise<MonthCoverageDTO[]> {
+  const overrides = normalizeOverrides(overridesRaw);
+  const locations = await getLocations();
+  const rows: MonthCoverageDTO[] = [];
+  for (const l of locations) {
+    if (!l.active) continue;
+    for (const t of l.templates) {
+      if (!t.active) continue;
+      rows.push({
+        templateId: t.id,
+        locationId: l.id,
+        locationName: l.name,
+        name: t.name,
+        code: t.code,
+        category: t.category,
+        dailyCounts: t.dailyCounts,
+        holidayCount: t.holidayCount,
+        override: t.id in overrides ? overrides[t.id] : null,
+      });
+    }
+  }
+  return rows;
+}
+
+/** A month's schedule with names attached, coverage, holidays and the last run. */
+export async function getMonthSchedule(year: number, month: number): Promise<MonthScheduleDTO> {
+  const { start, end } = monthRange(year, month);
+  const [scheduleMonth, holidays, settings, locationRows] = await Promise.all([
+    prisma.scheduleMonth.findUnique({
+      where: { year_month: { year, month } },
+      include: {
+        assignments: {
+          include: { physician: { select: { id: true, fullName: true } } },
+          orderBy: [{ date: "asc" }, { slotIndex: "asc" }],
+        },
+        runs: { orderBy: { startedAt: "desc" }, take: 1 },
       },
-      runs: { orderBy: { startedAt: "desc" }, take: 1 },
-    },
-  });
+    }),
+    getHolidayMap(start, end),
+    getSettings(),
+    prisma.location.findMany({ orderBy: [{ sortOrder: "asc" }, { name: "asc" }] }),
+  ]);
+
+  const locations = locationRows.map((l) => ({ id: l.id, name: l.name, code: l.code, sortOrder: l.sortOrder }));
+  const common = { year, month, holidays, weekendDays: settings.weekendDays, locations };
 
   if (!scheduleMonth) {
     return {
-      year,
-      month,
-      status: "DRAFT" as const,
+      ...common,
+      status: "DRAFT",
       generatedAt: null,
-      rounderCount: DEFAULT_COVERAGE.rounderCount,
-      dayAdmitCount: DEFAULT_COVERAGE.dayAdmitCount,
-      nightAdmit1Count: DEFAULT_COVERAGE.nightAdmit1Count,
-      nightAdmit2Count: DEFAULT_COVERAGE.nightAdmit2Count,
-      carsonRounderCount: DEFAULT_COMMUNITY_COVERAGE.carsonRounderCount,
-      eatonRounderCount: DEFAULT_COMMUNITY_COVERAGE.eatonRounderCount,
-      clintonRounderCount: DEFAULT_COMMUNITY_COVERAGE.clintonRounderCount,
-      assignments: [] as AssignmentDTO[],
+      coverage: await monthCoverage({}),
+      assignments: [],
       lastRun: null,
     };
   }
@@ -290,9 +276,15 @@ export async function getMonthSchedule(year: number, month: number) {
     id: a.id,
     date: toISODate(a.date),
     endDate: toISODate(a.endDate),
-    shiftType: a.shiftType,
-    hospital: a.hospital,
-    rounderIndex: a.rounderIndex,
+    shiftTemplateId: a.shiftTemplateId,
+    locationId: a.locationId,
+    shiftName: a.shiftName,
+    shiftCode: a.shiftCode,
+    category: a.category,
+    locationName: a.locationName,
+    locationCode: a.locationCode,
+    color: a.color,
+    slotIndex: a.slotIndex,
     startTime: a.startTime,
     endTime: a.endTime,
     physicianId: a.physicianId,
@@ -304,29 +296,13 @@ export async function getMonthSchedule(year: number, month: number) {
   }));
 
   return {
-    year,
-    month,
+    ...common,
     status: scheduleMonth.status,
-    generatedAt: scheduleMonth.generatedAt,
-    rounderCount: scheduleMonth.rounderCount,
-    dayAdmitCount: scheduleMonth.dayAdmitCount,
-    nightAdmit1Count: scheduleMonth.nightAdmit1Count,
-    nightAdmit2Count: scheduleMonth.nightAdmit2Count,
-    carsonRounderCount: scheduleMonth.carsonRounderCount,
-    eatonRounderCount: scheduleMonth.eatonRounderCount,
-    clintonRounderCount: scheduleMonth.clintonRounderCount,
+    generatedAt: scheduleMonth.generatedAt?.toISOString() ?? null,
+    coverage: await monthCoverage(scheduleMonth.coverageOverrides),
     assignments,
-    lastRun: scheduleMonth.runs[0] ?? null,
+    lastRun: (scheduleMonth.runs[0] as unknown as RunDTO) ?? null,
   };
 }
 
-export type MonthSchedule = Awaited<ReturnType<typeof getMonthSchedule>>;
-
-function slotKey(
-  date: string,
-  hospital: string,
-  shiftType: string,
-  rounderIndex: number | null
-): string {
-  return `${date}|${hospital}|${shiftType}|${rounderIndex ?? 0}`;
-}
+export type MonthSchedule = MonthScheduleDTO;

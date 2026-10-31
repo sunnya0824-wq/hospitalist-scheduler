@@ -30,6 +30,17 @@ jobs:
         run: |
           PGPASSWORD=app psql -h localhost -U app -d hospitalist -c "CREATE DATABASE shadow;"
           npx prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma --shadow-database-url postgresql://app:app@localhost:5432/shadow --exit-code
+      - name: Unit tests (engine, holidays, 2026-2076 sweep)
+        run: npm test
+      - name: Integration tests (real database)
+        run: |
+          PGPASSWORD=app psql -h localhost -U app -d hospitalist -c "CREATE DATABASE itest;"
+          DATABASE_URL=postgresql://app:app@localhost:5432/itest npx prisma migrate deploy
+          DATABASE_URL=postgresql://app:app@localhost:5432/itest npm run test:integration
+      - name: Upgrade test (database from before the generic model)
+        run: |
+          PGPASSWORD=app psql -h localhost -U app -d hospitalist -c "CREATE DATABASE legacyup;"
+          DATABASE_URL=postgresql://app:app@localhost:5432/legacyup ./scripts/test-legacy-upgrade.sh
       - name: Typecheck
         run: npx tsc --noEmit
       - name: Lint

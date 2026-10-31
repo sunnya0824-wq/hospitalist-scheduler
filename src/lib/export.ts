@@ -1,50 +1,43 @@
-import type { MonthSchedule } from "./schedule-service";
-import { scheduleColumns } from "./scheduler/shifts";
+import type { MonthScheduleDTO } from "./api-types";
+import { scheduleColumns, templateKeyOf, slotKey } from "./scheduler/shifts";
+import { WEEKDAY_SHORT } from "./shift-style";
 
 /**
- * Flatten a month schedule into a header row + data rows, one row per
- * calendar day, with one column per configured shift slot. Shared by the CSV,
- * XLSX, and copy-to-clipboard exporters so every format is consistent.
+ * Flatten a month into a header row + one row per day, one column per slot
+ * (grouped by location). Shared by CSV, XLSX and copy-to-clipboard.
  */
-export function buildScheduleTable(schedule: MonthSchedule): string[][] {
-  const columns = scheduleColumns({
-    rounderCount: schedule.rounderCount,
-    dayAdmitCount: schedule.dayAdmitCount,
-    nightAdmit1Count: schedule.nightAdmit1Count,
-    nightAdmit2Count: schedule.nightAdmit2Count,
-  });
+export function buildScheduleTable(schedule: MonthScheduleDTO): string[][] {
+  const order = new Map(schedule.locations.map((l, i) => [l.id, i]));
+  const templates = schedule.coverage.map((c) => ({
+    id: c.templateId,
+    locationSort: order.get(c.locationId) ?? 0,
+    sortOrder: 0,
+    locationName: c.locationName,
+    name: c.name,
+  }));
+  // Coverage rows arrive in configured order; keep it.
+  templates.forEach((t, i) => (t.sortOrder = i));
+  const columns = scheduleColumns(schedule.assignments, templates);
+  const multiLocation = new Set(columns.map((c) => c.locationName)).size > 1;
+  const header = [
+    "Date",
+    "Day",
+    ...columns.map((c) => (multiLocation ? `${c.locationCode} ${c.label}` : c.label)),
+    "Holiday",
+  ];
 
-  const header = ["Date", "Day", ...columns.map((c) => c.label)];
-
-  // Group MAIN-hospital assignments by date (community rounders are a
-  // separate per-hospital grid and would otherwise collide with R columns).
-  const byDate = new Map<string, MonthSchedule["assignments"]>();
+  const cell = new Map<string, string>();
+  const dates = new Set<string>();
   for (const a of schedule.assignments) {
-    if (a.hospital !== "MAIN") continue;
-    if (!byDate.has(a.date)) byDate.set(a.date, []);
-    byDate.get(a.date)!.push(a);
+    dates.add(a.date);
+    cell.set(slotKey(a.date, templateKeyOf(a), a.slotIndex), a.physicianName ?? "");
   }
-
-  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-  const rows: string[][] = [];
-
-  for (const date of Array.from(byDate.keys()).sort()) {
-    const dayAssignments = byDate.get(date)!;
-    const cellFor = (type: string, idx: number | null) => {
-      const a = dayAssignments.find(
-        (x) => x.shiftType === type && (idx ? x.rounderIndex === idx : true)
-      );
-      return a?.physicianName ?? "";
-    };
-
-    const dow = dayNames[new Date(date + "T00:00:00Z").getUTCDay()];
-    rows.push([
-      date,
-      dow,
-      ...columns.map((c) => cellFor(c.shiftType, c.index)),
-    ]);
-  }
-
+  const rows = [...dates].sort().map((date) => [
+    date,
+    WEEKDAY_SHORT[new Date(date + "T00:00:00Z").getUTCDay()],
+    ...columns.map((c) => cell.get(slotKey(date, c.templateKey, c.slotIndex)) ?? ""),
+    schedule.holidays[date] ?? "",
+  ]);
   return [header, ...rows];
 }
 
@@ -53,10 +46,7 @@ export function tableToCSV(table: string[][]): string {
   return table
     .map((row) =>
       row
-        .map((cell) => {
-          if (/[",\n]/.test(cell)) return `"${cell.replace(/"/g, '""')}"`;
-          return cell;
-        })
+        .map((cell) => (/[",\n]/.test(cell) ? `"${cell.replace(/"/g, '""')}"` : cell))
         .join(",")
     )
     .join("\n");

@@ -1,6 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { toISODate, addDaysISO, SHIFT_LABELS } from "@/lib/scheduler";
-import { HOSPITAL_LABELS } from "@/lib/scheduler/shifts";
+import { toISODate, addDaysISO } from "@/lib/scheduler";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -8,7 +7,7 @@ export const runtime = "nodejs";
 /**
  * Personal calendar feed for a physician (subscribe by token). Emits all-day
  * VEVENTs for shifts from 30 days ago through the end of next month, across
- * every hospital. Built inline — no ICS library.
+ * every location. Built inline — no ICS library.
  */
 export async function GET(
   _req: Request,
@@ -43,6 +42,7 @@ export async function GET(
     "BEGIN:VCALENDAR",
     "VERSION:2.0",
     "PRODID:-//Hospitalist Scheduler//Physician Feed//EN",
+    "REFRESH-INTERVAL;VALUE=DURATION:PT12H",
     "CALSCALE:GREGORIAN",
     "METHOD:PUBLISH",
     `X-WR-CALNAME:${escapeText(physician.fullName)} — Shifts`,
@@ -53,11 +53,7 @@ export async function GET(
     // All-day DTEND is exclusive; a night ending the next morning spans to
     // endDate + 1, day shifts span a single day.
     const endExclusive = addDaysISO(toISODate(a.endDate), 1);
-    const label =
-      a.shiftType === "ROUNDER" && a.rounderIndex
-        ? `Rounder ${a.rounderIndex}`
-        : SHIFT_LABELS[a.shiftType];
-    const summary = `${label} @ ${HOSPITAL_LABELS[a.hospital]}`;
+    const summary = `${a.shiftName} @ ${a.locationName}`;
     lines.push(
       "BEGIN:VEVENT",
       `UID:${a.id}@hospitalist-scheduler`,

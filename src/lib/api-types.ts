@@ -1,9 +1,7 @@
-import type {
-  ShiftType,
-  ShiftPreference,
-  ScheduleStatus,
-  Hospital,
-} from "@prisma/client";
+import type { ShiftPreference, ScheduleStatus } from "@prisma/client";
+import type { ShiftCategory } from "./scheduler/types";
+
+export type { ShiftCategory };
 
 /** Physician as returned by GET /api/physicians (with date arrays). */
 export interface PhysicianDTO {
@@ -13,21 +11,25 @@ export interface PhysicianDTO {
   desiredShifts: number;
   minShifts: number;
   maxShifts: number;
+  /** Min/max DAY-category shifts. */
   minRounding: number;
   maxRounding: number;
   minNights: number;
   maxNights: number;
+  /** Min/max ADMIT-category shifts. */
   minAdmin: number;
   maxAdmin: number;
   shiftPreference: ShiftPreference;
   nightEligible: boolean;
   adminEligible: boolean;
-  canWorkCarson: boolean;
-  canWorkEaton: boolean;
-  canWorkClinton: boolean;
+  /** Restricted (not open-to-all) locations this physician may work. */
+  locationIds: string[];
   fteMultiplier: number;
   monthlyShiftTarget: number | null;
   maxConsecutiveDays: number;
+  maxConsecutiveNights: number;
+  /** null = organization default. */
+  preferredNightBlock: number | null;
   icsToken: string;
   notes: string | null;
   prefersNights: boolean;
@@ -44,13 +46,69 @@ export interface PhysicianDTO {
   timeOffDates: string[];
 }
 
+export interface SettingsDTO {
+  organizationName: string;
+  restDaysAfterNights: number;
+  preferredNightBlock: number;
+  /** 0 = Sunday … 6 = Saturday */
+  weekendDays: number[];
+  observeUSFederalHolidays: boolean;
+  includeObservedHolidays: boolean;
+  disabledHolidays: string[];
+}
+
+export interface ShiftTemplateDTO {
+  id: string;
+  locationId: string;
+  name: string;
+  code: string;
+  category: ShiftCategory;
+  startTime: string;
+  endTime: string;
+  /** Slots needed Sunday … Saturday. */
+  dailyCounts: number[];
+  holidayCount: number | null;
+  color: string;
+  sortOrder: number;
+  active: boolean;
+}
+
+export interface LocationDTO {
+  id: string;
+  name: string;
+  code: string;
+  sortOrder: number;
+  active: boolean;
+  openToAll: boolean;
+  templates: ShiftTemplateDTO[];
+}
+
+export interface CustomHolidayDTO {
+  id: string;
+  date: string;
+  name: string;
+  recurring: boolean;
+}
+
+export interface ConfigDTO {
+  settings: SettingsDTO;
+  locations: LocationDTO[];
+  customHolidays: CustomHolidayDTO[];
+}
+
 export interface AssignmentDTO {
   id: string;
   date: string;
   endDate: string;
-  shiftType: ShiftType;
-  hospital: Hospital;
-  rounderIndex: number | null;
+  shiftTemplateId: string | null;
+  locationId: string | null;
+  shiftName: string;
+  shiftCode: string;
+  category: ShiftCategory;
+  locationName: string;
+  locationCode: string;
+  color: string;
+  slotIndex: number;
   startTime: string;
   endTime: string;
   physicianId: string | null;
@@ -63,14 +121,25 @@ export interface AssignmentDTO {
 
 export interface UnfilledSlotDTO {
   date: string;
-  hospital: Hospital;
-  shiftType: ShiftType;
-  rounderIndex: number | null;
+  locationId: string;
+  locationName: string;
+  shiftTemplateId: string;
+  shiftName: string;
+  shiftCode: string;
+  category: ShiftCategory;
+  slotIndex: number;
+}
+
+export interface FairnessBreakdownDTO {
+  workload: number;
+  nights: number;
+  weekends: number;
 }
 
 export interface GenerateResultDTO {
   warnings: string[];
   fairnessScore: number;
+  fairnessBreakdown: FairnessBreakdownDTO;
   unfilledSlots: UnfilledSlotDTO[];
 }
 
@@ -84,7 +153,9 @@ export interface PhysicianStatDTO {
   physicianId: string;
   fullName: string;
   total: number;
+  /** DAY-category shifts. */
   rounding: number;
+  /** ADMIT-category shifts. */
   admin: number;
   nights: number;
   weekends: number;
@@ -95,6 +166,10 @@ export interface PhysicianStatDTO {
   maxShifts: number;
   belowMin: boolean;
   aboveMax: boolean;
+  /** Absent in summaries saved before the generic update. */
+  nightEligible?: boolean;
+  prefersNights?: boolean;
+  longestNightBlock?: number;
   maxNightsPerMonth: number | null;
   maxWeekendsPerMonth: number | null;
 }
@@ -105,8 +180,23 @@ export interface RunDTO {
   warnings: string[];
   summary: {
     fairnessScore: number;
+    fairnessBreakdown?: FairnessBreakdownDTO;
     stats: PhysicianStatDTO[];
   } | null;
+}
+
+/** Per-template coverage row for a month: default counts and any override. */
+export interface MonthCoverageDTO {
+  templateId: string;
+  locationId: string;
+  locationName: string;
+  name: string;
+  code: string;
+  category: ShiftCategory;
+  dailyCounts: number[];
+  holidayCount: number | null;
+  /** Slots/day for every day this month, or null to use the defaults. */
+  override: number | null;
 }
 
 export interface MonthScheduleDTO {
@@ -114,13 +204,12 @@ export interface MonthScheduleDTO {
   month: number;
   status: ScheduleStatus;
   generatedAt?: string | null;
-  rounderCount: number;
-  dayAdmitCount: number;
-  nightAdmit1Count: number;
-  nightAdmit2Count: number;
-  carsonRounderCount: number;
-  eatonRounderCount: number;
-  clintonRounderCount: number;
+  coverage: MonthCoverageDTO[];
+  /** ISO date → holiday name, for this month. */
+  holidays: Record<string, string>;
+  /** Weekend weekday numbers (0 = Sunday). */
+  weekendDays: number[];
+  locations: { id: string; name: string; code: string; sortOrder: number }[];
   assignments: AssignmentDTO[];
   lastRun: RunDTO | null;
 }
