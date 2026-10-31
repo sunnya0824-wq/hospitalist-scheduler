@@ -15,47 +15,82 @@ import {
   MoreIcon,
   PrinterIcon,
 } from "@/components/icons";
-import { MONTH_NAMES, SHIFT_STYLES, getHospitalBadge } from "@/lib/shift-style";
-import { scheduleColumns, HOSPITALS } from "@/lib/scheduler/shifts";
-import { addDaysISO, isWeekend } from "@/lib/scheduler/dates";
-import { isHoliday, holidayName } from "@/lib/holidays";
+import { MONTH_NAMES, colorStyle } from "@/lib/shift-style";
 import {
+  CATEGORY_LABELS,
+  scheduleColumns,
+  templateKeyOf,
+  type ScheduleColumn,
+} from "@/lib/scheduler/shifts";
+import { addDaysISO, isWeekend } from "@/lib/scheduler/dates";
+import { buildScheduleTable } from "@/lib/export";
+import {
+  fetchConfig,
   fetchMonth,
   fetchPhysicians,
   generateMonth,
+  patchAssignment,
   swapAssignments,
   unlockAll,
+  type AssignmentPatchResult,
 } from "@/lib/client";
 import type {
   AssignmentDTO,
   MonthScheduleDTO,
   PhysicianDTO,
 } from "@/lib/api-types";
-import type { Hospital } from "@prisma/client";
 
 type View = "day" | "physician";
-type HospitalTab = Hospital | "COMBINED";
 
-const HOSPITAL_TABS: HospitalTab[] = [...HOSPITALS, "COMBINED"];
+/** "all" = every location together; otherwise a location key. */
+const ALL_TAB = "all";
 
-/** Parse the ?hospital= URL param into a tab value (defaults to MAIN). */
-function parseHospitalTab(raw: string | null): HospitalTab {
-  switch ((raw ?? "").toLowerCase()) {
-    case "carson":
-      return "CARSON";
-    case "eaton":
-      return "EATON";
-    case "clinton":
-      return "CLINTON";
-    case "combined":
-      return "COMBINED";
-    default:
-      return "MAIN";
-  }
+interface LocationTab {
+  key: string;
+  name: string;
+  code: string;
 }
 
-function hospitalTabLabel(tab: HospitalTab): string {
-  return tab === "COMBINED" ? "Combined" : getHospitalBadge(tab).label;
+/** Location key for an assignment (falls back to the name if the location was deleted). */
+function locationKeyOf(a: Pick<AssignmentDTO, "locationId" | "locationName">): string {
+  return a.locationId ?? `name:${a.locationName}`;
+}
+
+/** Column lookup data shared by the views: order + label per slot. */
+interface ColumnInfo {
+  columns: ScheduleColumn[];
+  order: Map<string, number>;
+  label: Map<string, string>;
+}
+
+function columnKey(templateKey: string, slotIndex: number): string {
+  return `${templateKey}|${slotIndex}`;
+}
+
+function buildColumns(data: MonthScheduleDTO | null): ColumnInfo {
+  const empty: ColumnInfo = { columns: [], order: new Map(), label: new Map() };
+  if (!data) return empty;
+  const locOrder = new Map(data.locations.map((l, i) => [l.id, i]));
+  const templates = data.coverage.map((c, i) => ({
+    id: c.templateId,
+    locationSort: locOrder.get(c.locationId) ?? Number.MAX_SAFE_INTEGER,
+    sortOrder: i,
+    locationName: c.locationName,
+    name: c.name,
+  }));
+  const columns = scheduleColumns(data.assignments, templates);
+  const order = new Map<string, number>();
+  const label = new Map<string, string>();
+  columns.forEach((c, i) => {
+    const k = columnKey(c.templateKey, c.slotIndex);
+    order.set(k, i);
+    label.set(k, c.label);
+  });
+  return { columns, order, label };
+}
+
+function labelOf(a: AssignmentDTO, info: ColumnInfo): string {
+  return info.label.get(columnKey(templateKeyOf(a), a.slotIndex)) ?? a.shiftCode;
 }
 
 function ScheduleContent() {
@@ -69,10 +104,14 @@ function ScheduleContent() {
     Number(search.get("month")) || now.getUTCMonth() + 1
   );
   const [data, setData] = useState<MonthScheduleDTO | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
   const [physicians, setPhysicians] = useState<PhysicianDTO[]>([]);
+  /** locationId → openToAll; null when settings could not be loaded. */
+  const [openToAll, setOpenToAll] = useState<Map<string, boolean> | null>(null);
+  const [restDays, setRestDays] = useState<number | null>(null);
   const [view, setView] = useState<View>("day");
-  const [hospitalTab, setHospitalTab] = useState<HospitalTab>(
-    parseHospitalTab(search.get("hospital"))
+  const [locationParam, setLocationParam] = useState<string | null>(
+    search.get("location")
   );
   const [editing, setEditing] = useState<AssignmentDTO | null>(null);
   const [busy, setBusy] = useState(false);
@@ -80,24 +119,46 @@ function ScheduleContent() {
   const [showUnfilled, setShowUnfilled] = useState(false);
   const [swapMode, setSwapMode] = useState(false);
   const [swapFirst, setSwapFirst] = useState<string | null>(null);
-  const [toast, setToast] = useState<{ text: string; kind: "ok" | "err" } | null>(
+  const [toast, setToast] = useState<{ text: string; kind: "ok" | "err" | "warn" } | null>(
     null
   );
   const [recent, setRecent] = useState<Set<string>>(new Set());
   const [unlocking, setUnlocking] = useState(false);
 
   const load = useCallback(async () => {
-    const [m, p] = await Promise.all([
-      fetchMonth(year, month),
-      fetchPhysicians(),
-    ]);
-    setData(m);
-    setPhysicians(p);
+    try {
+      const [m, p] = await Promise.all([
+        fetchMonth(year, month),
+        fetchPhysicians(),
+      ]);
+      setData(m);
+      setPhysicians(p);
+      setLoadError(null);
+    } catch (e) {
+      setLoadError(e instanceof Error ? e.message : "Failed to load schedule.");
+    }
   }, [year, month]);
 
   useEffect(() => {
     load();
   }, [load]);
+
+  // Location access rules (open to all vs. listed physicians) live in config.
+  useEffect(() => {
+    let alive = true;
+    fetchConfig()
+      .then((c) => {
+        if (!alive) return;
+        setOpenToAll(new Map(c.locations.map((l) => [l.id, l.openToAll])));
+        setRestDays(c.settings.restDaysAfterNights);
+      })
+      .catch(() => {
+        if (alive) setOpenToAll(null);
+      });
+    return () => {
+      alive = false;
+    };
+  }, []);
 
   // Escape exits swap mode.
   useEffect(() => {
@@ -112,9 +173,9 @@ function ScheduleContent() {
     return () => window.removeEventListener("keydown", onKey);
   }, [swapMode]);
 
-  const flash = (text: string, kind: "ok" | "err") => {
+  const flash = (text: string, kind: "ok" | "err" | "warn", ms = 3500) => {
     setToast({ text, kind });
-    setTimeout(() => setToast(null), 3500);
+    setTimeout(() => setToast(null), ms);
   };
 
   /** Mark assignment ids as recently edited so they pulse for ~2s. */
@@ -122,6 +183,39 @@ function ScheduleContent() {
     setRecent(new Set(ids));
     setTimeout(() => setRecent(new Set()), 2200);
   };
+
+  const columnInfo = useMemo(() => buildColumns(data), [data]);
+
+  // Location tabs: configured locations (in order) that have shifts this month,
+  // then any leftover locations seen only in older assignments.
+  const locationTabs = useMemo<LocationTab[]>(() => {
+    if (!data) return [];
+    const seen = new Map<string, LocationTab>();
+    for (const a of data.assignments) {
+      const key = locationKeyOf(a);
+      if (!seen.has(key)) seen.set(key, { key, name: a.locationName, code: a.locationCode });
+    }
+    const tabs: LocationTab[] = [];
+    for (const l of data.locations) {
+      const t = seen.get(l.id);
+      if (t) {
+        tabs.push({ key: l.id, name: l.name, code: l.code });
+        seen.delete(l.id);
+      }
+    }
+    return [...tabs, ...seen.values()];
+  }, [data]);
+
+  const multiLocation = locationTabs.length > 1;
+  const activeTab: string = !multiLocation
+    ? ALL_TAB
+    : locationParam === ALL_TAB
+    ? ALL_TAB
+    : locationTabs.some((t) => t.key === locationParam)
+    ? (locationParam as string)
+    : locationTabs[0].key;
+  const combined = activeTab === ALL_TAB;
+  const activeTabInfo = locationTabs.find((t) => t.key === activeTab);
 
   const onChipClick = async (a: AssignmentDTO) => {
     if (!swapMode) {
@@ -162,28 +256,31 @@ function ScheduleContent() {
     }
   };
 
-  const syncUrl = (y: number, m: number, tab: HospitalTab) => {
-    router.replace(
-      `/schedule?year=${y}&month=${m}&hospital=${tab.toLowerCase()}`
-    );
+  const syncUrl = (y: number, m: number, loc: string | null) => {
+    const q = new URLSearchParams({ year: String(y), month: String(m) });
+    if (loc) q.set("location", loc);
+    router.replace(`/schedule?${q.toString()}`);
   };
 
   const changeMonth = (y: number, m: number) => {
     setYear(y);
     setMonth(m);
-    syncUrl(y, m, hospitalTab);
+    syncUrl(y, m, locationParam);
   };
 
-  const changeHospital = (tab: HospitalTab) => {
-    setHospitalTab(tab);
-    syncUrl(year, month, tab);
+  const changeLocation = (key: string) => {
+    setLocationParam(key);
+    syncUrl(year, month, key);
   };
 
   const regenerate = async () => {
     setBusy(true);
     try {
-      await generateMonth(year, month);
+      // No coverage overrides passed: the month's saved overrides are kept.
+      await generateMonth(year, month, false);
       await load();
+    } catch (e) {
+      flash(e instanceof Error ? e.message : "Failed to generate schedule.", "err");
     } finally {
       setBusy(false);
     }
@@ -191,20 +288,70 @@ function ScheduleContent() {
 
   const copyTSV = async () => {
     if (!data) return;
-    const tsv = buildTSV(data);
-    await navigator.clipboard.writeText(tsv);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const tsv = buildScheduleTable(data)
+      .map((row) => row.join("\t"))
+      .join("\n");
+    try {
+      await navigator.clipboard.writeText(tsv);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      flash("Could not copy to the clipboard.", "err");
+    }
   };
 
-  const allAssignments = data?.assignments ?? [];
+  /** Apply a PATCH result to the loaded month without a full reload. */
+  const applyPatch = (r: AssignmentPatchResult) => {
+    setData((d) =>
+      d
+        ? {
+            ...d,
+            assignments: d.assignments.map((x) =>
+              x.id === r.id
+                ? {
+                    ...x,
+                    physicianId: r.physicianId,
+                    physicianName: r.physicianName,
+                    isManual: r.isManual,
+                    isLocked: r.isLocked,
+                    isAutoGenerated: r.isAutoGenerated,
+                    warnings: r.warnings,
+                  }
+                : x
+            ),
+          }
+        : d
+    );
+  };
+
+  const allAssignments = useMemo(() => data?.assignments ?? [], [data]);
   const unfilled = allAssignments.filter((a) => !a.physicianId);
   const lockedCount = allAssignments.filter((a) => a.isLocked).length;
-  const combined = hospitalTab === "COMBINED";
   const assignments = combined
     ? allAssignments
-    : allAssignments.filter((a) => a.hospital === hospitalTab);
-  const warnings = data?.lastRun?.warnings ?? [];
+    : allAssignments.filter((a) => locationKeyOf(a) === activeTab);
+  const runWarnings = data?.lastRun?.warnings ?? [];
+  const slotWarnings = allAssignments
+    .filter((a) => a.warnings.length > 0)
+    .sort((x, y) => (x.date < y.date ? -1 : x.date > y.date ? 1 : 0))
+    .flatMap((a) =>
+      a.warnings.map(
+        (w) =>
+          `${formatDate(a.date)} · ${labelOf(a, columnInfo)}${
+            multiLocation ? ` (${a.locationName})` : ""
+          } — ${w}`
+      )
+    );
+  const warnings = [...slotWarnings, ...runWarnings];
+  const legendItems = assignments.map((a) => ({
+    name: a.shiftName,
+    color: a.color,
+  }));
+  const weekendDays = useMemo(
+    () => new Set(data?.weekendDays ?? [0, 6]),
+    [data]
+  );
+  const holidays = data?.holidays ?? {};
 
   return (
     <div className="mx-auto w-full max-w-6xl min-w-0">
@@ -221,26 +368,36 @@ function ScheduleContent() {
           </div>
         </header>
 
-        <div className="mb-4 flex snap-x flex-nowrap gap-1 overflow-x-auto border-b border-[#1e293b] md:flex-wrap md:overflow-visible">
-          {HOSPITAL_TABS.map((tab) => (
-            <button
-              key={tab}
-              onClick={() => changeHospital(tab)}
-              className={`-mb-px shrink-0 snap-start whitespace-nowrap rounded-t-md border-b-2 px-3 py-2 text-sm font-medium transition min-h-[44px] md:min-h-0 ${
-                hospitalTab === tab
-                  ? "border-cyan-400 text-cyan-300 shadow-[0_2px_10px_-4px_rgba(34,211,238,0.6)]"
-                  : "border-transparent text-slate-400 hover:text-cyan-200"
-              }`}
-            >
-              {hospitalTabLabel(tab)}
-            </button>
-          ))}
-        </div>
+        {multiLocation && (
+          <div className="mb-4 flex snap-x flex-nowrap gap-1 overflow-x-auto border-b border-[#1e293b] md:flex-wrap md:overflow-visible">
+            {[...locationTabs, { key: ALL_TAB, name: "All locations", code: "" }].map((tab) => (
+              <button
+                key={tab.key}
+                onClick={() => changeLocation(tab.key)}
+                className={`-mb-px shrink-0 snap-start whitespace-nowrap rounded-t-md border-b-2 px-3 py-2 text-sm font-medium transition min-h-[44px] md:min-h-0 ${
+                  activeTab === tab.key
+                    ? "border-cyan-400 text-cyan-300 shadow-[0_2px_10px_-4px_rgba(34,211,238,0.6)]"
+                    : "border-transparent text-slate-400 hover:text-cyan-200"
+                }`}
+              >
+                {tab.name}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
+
+      {loadError && (
+        <div className="mb-4 rounded-lg border border-rose-400/50 bg-rose-500/10 px-4 py-2 text-sm text-rose-300">
+          {loadError}
+        </div>
+      )}
 
       {unfilled.length > 0 && (
         <UnfilledBanner
           slots={unfilled}
+          info={columnInfo}
+          showLocation={multiLocation}
           open={showUnfilled}
           onToggle={() => setShowUnfilled((v) => !v)}
         />
@@ -251,6 +408,8 @@ function ScheduleContent() {
           className={`mb-4 rounded-lg border px-4 py-2 text-sm ${
             toast.kind === "ok"
               ? "border-emerald-400/50 bg-emerald-500/10 text-emerald-300"
+              : toast.kind === "warn"
+              ? "border-amber-400/50 bg-amber-500/10 text-amber-200"
               : "border-rose-400/50 bg-rose-500/10 text-rose-300"
           }`}
         >
@@ -290,7 +449,7 @@ function ScheduleContent() {
           </button>
         </div>
 
-        {/* Desktop toolbar (unchanged) */}
+        {/* Desktop toolbar */}
         <div className="hidden flex-wrap gap-2 md:flex">
           <button
             onClick={() => {
@@ -317,6 +476,7 @@ function ScheduleContent() {
           <button
             onClick={regenerate}
             disabled={busy}
+            title="Locked and hand-edited slots are kept"
             className="rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 hover:shadow-[0_0_14px_rgba(34,211,238,0.5)] disabled:opacity-50"
           >
             {busy ? "Regenerating…" : "Regenerate"}
@@ -375,11 +535,15 @@ function ScheduleContent() {
         </div>
       </div>
 
-      <div className="mb-4 rounded-lg border border-[#1e293b] bg-[#0f172a] p-3">
-        <ShiftLegend />
-      </div>
+      {legendItems.length > 0 && (
+        <div className="mb-4 rounded-lg border border-[#1e293b] bg-[#0f172a] p-3">
+          <ShiftLegend items={legendItems} />
+        </div>
+      )}
 
-      {assignments.length === 0 ? (
+      {!data && !loadError ? (
+        <div className="p-6 text-sm text-slate-400">Loading…</div>
+      ) : assignments.length === 0 ? (
         allAssignments.length === 0 ? (
           <div className="rounded-xl border border-dashed border-cyan-900/40 bg-slate-900/40 p-12 text-center">
             <CalendarIcon
@@ -407,15 +571,18 @@ function ScheduleContent() {
           </div>
         ) : (
           <div className="rounded-xl border border-dashed border-[#1e293b] bg-slate-900/40 p-10 text-center text-slate-400">
-            No {hospitalTabLabel(hospitalTab)} shifts this month. Set its rounder
-            count on the Dashboard, then regenerate.
+            No {activeTabInfo?.name ?? ""} shifts this month. Set its coverage on
+            the Dashboard, then regenerate.
           </div>
         )
       ) : view === "day" ? (
         <DayView
           assignments={assignments}
+          info={columnInfo}
+          holidays={holidays}
+          weekendDays={weekendDays}
           onEdit={onChipClick}
-          showHospital={combined}
+          showLocation={combined && multiLocation}
           swapMode={swapMode}
           swapFirst={swapFirst}
           recent={recent}
@@ -427,20 +594,27 @@ function ScheduleContent() {
         />
       )}
 
-      {warnings.length > 0 && (
-        <WarningsPanel warnings={warnings} />
-      )}
+      {warnings.length > 0 && <WarningsPanel warnings={warnings} />}
 
       {editing && (
         <EditModal
           assignment={editing}
+          label={labelOf(editing, columnInfo)}
+          showLocation={multiLocation}
           physicians={physicians}
           allAssignments={allAssignments}
+          openToAll={openToAll}
+          restDays={restDays}
           onClose={() => setEditing(null)}
-          onSaved={async () => {
-            markRecent([editing.id]);
+          onSaved={(r) => {
+            applyPatch(r);
+            markRecent([r.id]);
             setEditing(null);
-            await load();
+            if (r.warnings.length > 0) {
+              flash(`Saved with a warning: ${r.warnings.join(" ")}`, "warn", 7000);
+            } else {
+              flash("Saved.", "ok", 2000);
+            }
           }}
         />
       )}
@@ -450,26 +624,32 @@ function ScheduleContent() {
 
 function DayView({
   assignments,
+  info,
+  holidays,
+  weekendDays,
   onEdit,
-  showHospital,
+  showLocation,
   swapMode,
   swapFirst,
   recent,
 }: {
   assignments: AssignmentDTO[];
+  info: ColumnInfo;
+  holidays: Record<string, string>;
+  weekendDays: ReadonlySet<number>;
   onEdit: (a: AssignmentDTO) => void;
-  showHospital: boolean;
+  showLocation: boolean;
   swapMode: boolean;
   swapFirst: string | null;
   recent: Set<string>;
 }) {
-  const byDate = useMemo(() => groupByDate(assignments), [assignments]);
+  const byDate = useMemo(() => groupByDate(assignments, info), [assignments, info]);
   return (
     <div className="space-y-3">
       {Array.from(byDate.entries()).map(([date, items]) => {
-        const weekend = isWeekend(date);
-        const holiday = isHoliday(date);
-        const holName = holidayName(date);
+        const weekend = isWeekend(date, weekendDays);
+        const holName = holidays[date] ?? null;
+        const holiday = Boolean(holName);
         return (
           <div
             key={date}
@@ -509,11 +689,12 @@ function DayView({
                 {items.filter((i) => i.physicianId).length}/{items.length} filled
               </span>
             </div>
-            {/* Desktop: compact wrapped chips (unchanged) */}
+            {/* Desktop: compact wrapped chips */}
             <div className="hidden flex-wrap gap-2 md:flex">
               {items.map((a) => {
                 const selected = swapFirst === a.id;
                 const glow = recent.has(a.id);
+                const label = labelOf(a, info);
                 return (
                   <button
                     key={a.id}
@@ -521,18 +702,25 @@ function DayView({
                     className={`group relative rounded-md ${
                       selected ? "ring-2 ring-cyan-400 ring-offset-1 ring-offset-[#0f172a]" : ""
                     } ${glow ? "edit-glow" : ""}`}
-                    title={swapMode ? "Click to swap" : "Click to edit"}
+                    title={
+                      (swapMode ? "Click to swap" : "Click to edit") +
+                      ` · ${label} — ${a.shiftName}` +
+                      (a.warnings.length ? `\n${a.warnings.join("\n")}` : "")
+                    }
                   >
                     <ShiftChip
-                      shiftType={a.shiftType}
-                      rounderIndex={a.rounderIndex}
+                      label={label}
+                      color={a.color}
                       name={a.physicianName}
-                      hospital={showHospital ? a.hospital : undefined}
+                      locationCode={showLocation ? a.locationCode : undefined}
                     />
                     {a.isLocked && (
                       <span className="absolute -right-1 -top-1 text-[10px]">
                         🔒
                       </span>
+                    )}
+                    {a.warnings.length > 0 && (
+                      <AlertTriangleIcon className="absolute -left-1 -top-1 h-3 w-3 text-amber-300" />
                     )}
                   </button>
                 );
@@ -545,8 +733,9 @@ function DayView({
                 <MobileChipRow
                   key={a.id}
                   a={a}
+                  label={labelOf(a, info)}
                   onEdit={onEdit}
-                  showHospital={showHospital}
+                  showLocation={showLocation}
                   selected={swapFirst === a.id}
                   glow={recent.has(a.id)}
                 />
@@ -561,24 +750,20 @@ function DayView({
 
 function MobileChipRow({
   a,
+  label,
   onEdit,
-  showHospital,
+  showLocation,
   selected,
   glow,
 }: {
   a: AssignmentDTO;
+  label: string;
   onEdit: (a: AssignmentDTO) => void;
-  showHospital: boolean;
+  showLocation: boolean;
   selected: boolean;
   glow: boolean;
 }) {
-  const style = SHIFT_STYLES[a.shiftType];
-  const label =
-    a.shiftType === "ROUNDER" && a.rounderIndex
-      ? `R${a.rounderIndex}`
-      : style.label;
-  const badge =
-    showHospital && a.hospital !== "MAIN" ? getHospitalBadge(a.hospital) : null;
+  const style = colorStyle(a.color);
   const unfilled = !a.physicianId;
   return (
     <button
@@ -602,13 +787,16 @@ function MobileChipRow({
       <span className="min-w-0 flex-1 truncate font-semibold">
         {unfilled ? "Tap to assign" : a.physicianName}
       </span>
-      {badge && (
+      {showLocation && (
         <span
-          className={`shrink-0 rounded-sm border px-1 text-[9px] font-semibold uppercase leading-tight ${badge.badge}`}
-          title={badge.label}
+          className={`shrink-0 rounded-sm border px-1 text-[9px] font-semibold uppercase leading-tight ${style.badge}`}
+          title={a.locationName}
         >
-          {badge.short}
+          {a.locationCode}
         </span>
+      )}
+      {a.warnings.length > 0 && (
+        <AlertTriangleIcon className="h-4 w-4 shrink-0 text-amber-300" />
       )}
       {a.isLocked && <LockIcon className="h-4 w-4 shrink-0 text-amber-300" />}
       {unfilled && (
@@ -741,27 +929,23 @@ function PhysicianView({
           <tr className="border-b border-[#1e293b] text-left text-xs uppercase text-cyan-400/70">
             <th className="px-4 py-2">Physician</th>
             <th className="px-4 py-2">Total</th>
-            <th className="px-4 py-2">Rounding</th>
-            <th className="px-4 py-2">Day Admit</th>
-            <th className="px-4 py-2">Nights</th>
+            <th className="px-4 py-2">{CATEGORY_LABELS.DAY}</th>
+            <th className="px-4 py-2">{CATEGORY_LABELS.ADMIT}</th>
+            <th className="px-4 py-2">{CATEGORY_LABELS.NIGHT}</th>
             <th className="px-4 py-2">Dates</th>
           </tr>
         </thead>
         <tbody>
           {rows.map(({ p, items }) => {
-            const rounding = items.filter(
-              (i) => i.shiftType === "ROUNDER"
-            ).length;
-            const admin = items.filter((i) => i.shiftType === "ADMIN").length;
-            const nights = items.filter((i) =>
-              i.shiftType.startsWith("NIGHT")
-            ).length;
+            const day = items.filter((i) => i.category === "DAY").length;
+            const admit = items.filter((i) => i.category === "ADMIT").length;
+            const nights = items.filter((i) => i.category === "NIGHT").length;
             return (
               <tr key={p.id} className="border-b border-[#1e293b] transition hover:bg-cyan-500/5">
                 <td className="px-4 py-2 font-medium text-slate-200">{p.fullName}</td>
                 <td className="px-4 py-2">{items.length}</td>
-                <td className="px-4 py-2">{rounding}</td>
-                <td className="px-4 py-2">{admin}</td>
+                <td className="px-4 py-2">{day}</td>
+                <td className="px-4 py-2">{admit}</td>
                 <td className="px-4 py-2">{nights}</td>
                 <td className="px-4 py-2 text-xs text-slate-400">
                   {items
@@ -780,10 +964,14 @@ function PhysicianView({
 
 function UnfilledBanner({
   slots,
+  info,
+  showLocation,
   open,
   onToggle,
 }: {
   slots: AssignmentDTO[];
+  info: ColumnInfo;
+  showLocation: boolean;
   open: boolean;
   onToggle: () => void;
 }) {
@@ -798,7 +986,7 @@ function UnfilledBanner({
       >
         <span className="font-semibold uppercase tracking-wide text-fuchsia-300">
           {slots.length} slot{slots.length === 1 ? "" : "s"} could not be filled
-          — too many physicians off
+          — not enough physicians available
         </span>
         <span className="text-sm text-fuchsia-300">
           {open ? "Hide ▲" : "View ▼"}
@@ -808,11 +996,8 @@ function UnfilledBanner({
         <ul className="mt-3 max-h-64 space-y-1 overflow-y-auto text-sm text-fuchsia-200/90">
           {sorted.map((s) => (
             <li key={s.id}>
-              • {formatDate(s.date)} —{" "}
-              {s.shiftType === "ROUNDER" && s.rounderIndex
-                ? `Rounder ${s.rounderIndex}`
-                : s.shiftType.replace(/_/g, " ")}{" "}
-              · {getHospitalBadge(s.hospital).label}
+              • {formatDate(s.date)} — {labelOf(s, info)} ({s.shiftName})
+              {showLocation ? ` · ${s.locationName}` : ""}
             </li>
           ))}
         </ul>
@@ -837,78 +1022,123 @@ function WarningsPanel({ warnings }: { warnings: string[] }) {
 }
 
 /**
- * Reason a physician cannot take a slot (best-effort, client-side). Used to
- * grey out ineligible options in the edit dropdown. The server re-validates
- * swaps; manual single-slot edits trust this hint.
+ * Hard reason a physician cannot take a slot at all (wrong shift category or
+ * not allowed at the location). These options are greyed out.
  */
-function eligibilityReason(
+function blockReason(
   phys: PhysicianDTO,
   slot: AssignmentDTO,
-  allAssignments: AssignmentDTO[]
+  openToAll: Map<string, boolean> | null
 ): string | null {
-  const night =
-    slot.shiftType === "NIGHT_ADMIT_1" || slot.shiftType === "NIGHT_ADMIT_2";
-  if (night && !phys.nightEligible) return "not night eligible";
-  if (slot.shiftType === "ADMIN" && !phys.adminEligible)
-    return "not day-admit eligible";
-  if (slot.hospital !== "MAIN") {
-    const ok =
-      slot.hospital === "CARSON"
-        ? phys.canWorkCarson
-        : slot.hospital === "EATON"
-        ? phys.canWorkEaton
-        : phys.canWorkClinton;
-    if (!ok) return "hospital-ineligible";
+  if (slot.category === "NIGHT" && !phys.nightEligible) return "doesn't work nights";
+  if (slot.category === "ADMIT" && !phys.adminEligible) return "doesn't do admitting";
+  if (openToAll && slot.locationId) {
+    const open = openToAll.get(slot.locationId);
+    // Unknown location (e.g. deleted) → don't filter.
+    if (open === false && !phys.locationIds.includes(slot.locationId)) {
+      return `not set up for ${slot.locationName}`;
+    }
   }
+  return null;
+}
+
+/**
+ * Soft rule a physician would break by taking the slot (best-effort,
+ * client-side). Still selectable: the server saves it with a warning.
+ */
+function cautionReason(
+  phys: PhysicianDTO,
+  slot: AssignmentDTO,
+  allAssignments: AssignmentDTO[],
+  restDays: number
+): string | null {
   if (phys.timeOffDates.includes(slot.date)) return "time off that day";
   const sameDay = allAssignments.some(
     (x) => x.id !== slot.id && x.physicianId === phys.id && x.date === slot.date
   );
   if (sameDay) return "already works that day";
-  const prev1 = addDaysISO(slot.date, -1);
-  const prev2 = addDaysISO(slot.date, -2);
-  const recentNight = allAssignments.some(
-    (x) =>
-      x.physicianId === phys.id &&
-      (x.date === prev1 || x.date === prev2) &&
-      (x.shiftType === "NIGHT_ADMIT_1" || x.shiftType === "NIGHT_ADMIT_2")
-  );
-  if (recentNight) return "post-night rest";
+  const nightOn = (iso: string) =>
+    allAssignments.some(
+      (x) =>
+        x.id !== slot.id &&
+        x.physicianId === phys.id &&
+        x.date === iso &&
+        x.category === "NIGHT"
+    );
+  // A night the day before continues a night block; otherwise any night in
+  // the rest window means the physician should be resting.
+  const continuesBlock = slot.category === "NIGHT" && nightOn(addDaysISO(slot.date, -1));
+  if (!continuesBlock) {
+    for (let i = 1; i <= restDays; i++) {
+      if (nightOn(addDaysISO(slot.date, -i))) return "resting after nights";
+    }
+  }
   return null;
 }
 
 function EditModal({
   assignment,
+  label,
+  showLocation,
   physicians,
   allAssignments,
+  openToAll,
+  restDays,
   onClose,
   onSaved,
 }: {
   assignment: AssignmentDTO;
+  label: string;
+  showLocation: boolean;
   physicians: PhysicianDTO[];
   allAssignments: AssignmentDTO[];
+  openToAll: Map<string, boolean> | null;
+  restDays: number | null;
   onClose: () => void;
-  onSaved: () => void;
+  onSaved: (r: AssignmentPatchResult) => void;
 }) {
   const [physicianId, setPhysicianId] = useState(
     assignment.physicianId ?? ""
   );
   const [isLocked, setIsLocked] = useState(assignment.isLocked);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const patch = async (body: Record<string, unknown>) => {
+  const patch = async (body: { physicianId?: string | null; isLocked?: boolean; clear?: boolean }) => {
     setSaving(true);
+    setError(null);
     try {
-      await fetch(`/api/assignments/${assignment.id}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
-      onSaved();
+      const r = await patchAssignment(assignment.id, body);
+      onSaved(r);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save.");
     } finally {
       setSaving(false);
     }
   };
+
+  const save = () => {
+    const body: { physicianId?: string | null; isLocked?: boolean } = { isLocked };
+    // Only send the physician when it changed, so a lock-only edit doesn't
+    // turn an auto-filled slot into a manual one.
+    if ((physicianId || null) !== assignment.physicianId) {
+      body.physicianId = physicianId || null;
+    }
+    patch(body);
+  };
+
+  const options = physicians
+    .filter((p) => p.active || p.id === assignment.physicianId)
+    .map((p) => {
+      const current = p.id === assignment.physicianId;
+      const block = current ? null : blockReason(p, assignment, openToAll);
+      const caution =
+        current || block
+          ? null
+          : cautionReason(p, assignment, allAssignments, restDays ?? 2);
+      return { p, block, caution };
+    });
+  const selectedCaution = options.find((o) => o.p.id === physicianId)?.caution;
 
   return (
     <div
@@ -921,12 +1151,18 @@ function EditModal({
       >
         <h3 className="mb-1 font-semibold">Edit assignment</h3>
         <p className="mb-4 text-sm text-slate-400">
-          {formatDate(assignment.date)} ·{" "}
-          {assignment.shiftType === "ROUNDER"
-            ? `Rounder ${assignment.rounderIndex}`
-            : assignment.shiftType.replace(/_/g, " ")}{" "}
-          ({assignment.startTime}–{assignment.endTime})
+          {formatDate(assignment.date)} · {label} — {assignment.shiftName}
+          {showLocation ? ` at ${assignment.locationName}` : ""} (
+          {assignment.startTime}–{assignment.endTime})
         </p>
+
+        {assignment.warnings.length > 0 && (
+          <div className="mb-4 rounded-md border border-amber-400/40 bg-amber-500/10 px-3 py-2 text-xs text-amber-200">
+            {assignment.warnings.map((w, i) => (
+              <div key={i}>{w}</div>
+            ))}
+          </div>
+        )}
 
         <label className="mb-1 block text-sm font-medium">Physician</label>
         <select
@@ -935,23 +1171,23 @@ function EditModal({
           className="mb-1 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-2 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
         >
           <option value="">— Unfilled —</option>
-          {physicians.map((p) => {
-            const reason =
-              p.id === assignment.physicianId
-                ? null
-                : eligibilityReason(p, assignment, allAssignments);
-            return (
-              <option key={p.id} value={p.id} disabled={Boolean(reason)}>
-                {p.fullName}
-                {reason ? ` — ${reason}` : ""}
-              </option>
-            );
-          })}
+          {options.map(({ p, block, caution }) => (
+            <option key={p.id} value={p.id} disabled={Boolean(block)}>
+              {p.fullName}
+              {block ? ` — ${block}` : caution ? ` — ⚠ ${caution}` : ""}
+            </option>
+          ))}
         </select>
         <p className="mb-4 text-xs text-slate-500">
-          Ineligible physicians (same-day shift, post-night rest, time off, or
-          hospital-ineligible) are greyed out.
+          Physicians who can&apos;t work this kind of shift or this location are
+          greyed out. Picks marked ⚠ break a scheduling rule; they&apos;re
+          allowed but saved with a warning.
         </p>
+        {selectedCaution && (
+          <p className="-mt-2 mb-4 text-xs text-amber-300">
+            Heads up: {selectedCaution}.
+          </p>
+        )}
 
         <label className="mb-4 flex items-center gap-2 text-sm">
           <input
@@ -959,8 +1195,14 @@ function EditModal({
             checked={isLocked}
             onChange={(e) => setIsLocked(e.target.checked)}
           />
-          Lock this slot (preserved on regenerate)
+          Lock this slot (kept when you regenerate)
         </label>
+
+        {error && (
+          <p className="mb-3 rounded-md border border-rose-400/50 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+            {error}
+          </p>
+        )}
 
         <div className="flex flex-wrap justify-end gap-2">
           <button
@@ -977,7 +1219,7 @@ function EditModal({
             Cancel
           </button>
           <button
-            onClick={() => patch({ physicianId, isLocked })}
+            onClick={save}
             disabled={saving}
             className="min-h-[44px] rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 hover:shadow-[0_0_14px_rgba(34,211,238,0.5)] disabled:opacity-50 md:min-h-0"
           >
@@ -999,24 +1241,22 @@ export default function SchedulePage() {
 
 // --- helpers ---------------------------------------------------------------
 
+/** Group by date (sorted), each day's slots in column order. */
 function groupByDate(
-  assignments: AssignmentDTO[]
+  assignments: AssignmentDTO[],
+  info: ColumnInfo
 ): Map<string, AssignmentDTO[]> {
   const map = new Map<string, AssignmentDTO[]>();
   for (const a of assignments) {
     if (!map.has(a.date)) map.set(a.date, []);
     map.get(a.date)!.push(a);
   }
+  const pos = (a: AssignmentDTO) =>
+    info.order.get(columnKey(templateKeyOf(a), a.slotIndex)) ?? Number.MAX_SAFE_INTEGER;
   for (const items of map.values()) {
-    items.sort((x, y) => {
-      const order = (t: string) =>
-        t === "ROUNDER" ? 0 : t === "ADMIN" ? 1 : 2;
-      if (order(x.shiftType) !== order(y.shiftType))
-        return order(x.shiftType) - order(y.shiftType);
-      return (x.rounderIndex ?? 0) - (y.rounderIndex ?? 0);
-    });
+    items.sort((x, y) => pos(x) - pos(y));
   }
-  return new Map(Array.from(map.entries()).sort());
+  return new Map(Array.from(map.entries()).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)));
 }
 
 function formatDate(iso: string): string {
@@ -1027,27 +1267,4 @@ function formatDate(iso: string): string {
     day: "numeric",
     timeZone: "UTC",
   });
-}
-
-function buildTSV(data: MonthScheduleDTO): string {
-  const mainAssignments = data.assignments.filter((a) => a.hospital === "MAIN");
-  const byDate = groupByDate(mainAssignments);
-  const columns = scheduleColumns({
-    rounderCount: data.rounderCount,
-    dayAdmitCount: data.dayAdmitCount,
-    nightAdmit1Count: data.nightAdmit1Count,
-    nightAdmit2Count: data.nightAdmit2Count,
-  });
-  const header = ["Date", ...columns.map((c) => c.label)].join("\t");
-  const lines = [header];
-  for (const [date, items] of byDate) {
-    const cell = (type: string, idx: number | null) =>
-      items.find(
-        (i) => i.shiftType === type && (idx ? i.rounderIndex === idx : true)
-      )?.physicianName ?? "";
-    lines.push(
-      [date, ...columns.map((c) => cell(c.shiftType, c.index))].join("\t")
-    );
-  }
-  return lines.join("\n");
 }
