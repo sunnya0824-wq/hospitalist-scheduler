@@ -3,8 +3,9 @@
 import { Suspense, useCallback, useEffect, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { MonthPicker } from "@/components/MonthPicker";
-import { MONTH_NAMES, getHospitalBadge } from "@/lib/shift-style";
-import { HOSPITALS, HOSPITAL_LABELS } from "@/lib/scheduler/shifts";
+import { MONTH_NAMES, WEEKDAY_SHORT } from "@/lib/shift-style";
+import { CATEGORY_LABELS } from "@/lib/scheduler/shifts";
+import { weekdayOf } from "@/lib/scheduler/dates";
 import { fetchMonth } from "@/lib/client";
 import type {
   MonthScheduleDTO,
@@ -39,7 +40,13 @@ function AnalyticsContent() {
 
   const stats = data?.lastRun?.summary?.stats ?? [];
   const fairness = data?.lastRun?.summary?.fairnessScore ?? null;
+  const breakdown = data?.lastRun?.summary?.fairnessBreakdown ?? null;
   const warnings = data?.lastRun?.warnings ?? [];
+  const showNightBlock = stats.some((s) => s.longestNightBlock != null);
+  const holidayEntries = Object.entries(data?.holidays ?? {}).sort(([a], [b]) =>
+    a.localeCompare(b)
+  );
+  const weekendSet = new Set(data?.weekendDays ?? [0, 6]);
   const maxTotal = Math.max(1, ...stats.map((s) => s.total));
   const maxNights = Math.max(1, ...stats.map((s) => s.nights));
 
@@ -58,16 +65,57 @@ function AnalyticsContent() {
   const holidayDist = dist(stats.map((s) => s.holidays));
 
   const assignments = data?.assignments ?? [];
-  const hospitalBreakdown = HOSPITALS.map((h) => {
-    const slots = assignments.filter((a) => a.hospital === h);
-    const filled = slots.filter((a) => a.physicianId);
-    return {
-      hospital: h,
-      total: slots.length,
-      filled: filled.length,
-      physicians: new Set(filled.map((a) => a.physicianId)).size,
-    };
-  }).filter((r) => r.total > 0);
+  const locationOrder = new Map(
+    (data?.locations ?? []).map((l) => [l.id, l] as const)
+  );
+  const locationKeys: string[] = [];
+  const locationRows = new Map<
+    string,
+    { name: string; code: string; total: number; filled: number; physicians: Set<string> }
+  >();
+  for (const a of assignments) {
+    const key = a.locationId ?? `name:${a.locationName}`;
+    let row = locationRows.get(key);
+    if (!row) {
+      row = {
+        name: a.locationName,
+        code: a.locationCode,
+        total: 0,
+        filled: 0,
+        physicians: new Set(),
+      };
+      locationRows.set(key, row);
+      locationKeys.push(key);
+    }
+    row.total++;
+    if (a.physicianId) {
+      row.filled++;
+      row.physicians.add(a.physicianId);
+    }
+  }
+  const hospitalBreakdown = locationKeys
+    .sort(
+      (a, b) =>
+        (locationOrder.get(a)?.sortOrder ?? Number.MAX_SAFE_INTEGER) -
+        (locationOrder.get(b)?.sortOrder ?? Number.MAX_SAFE_INTEGER)
+    )
+    .map((key) => {
+      const r = locationRows.get(key)!;
+      return {
+        key,
+        name: r.name,
+        code: r.code,
+        total: r.total,
+        filled: r.filled,
+        physicians: r.physicians.size,
+      };
+    });
+  const weekendSlots = assignments.filter((a) =>
+    weekendSet.has(weekdayOf(a.date))
+  ).length;
+  const holidaySlots = assignments.filter(
+    (a) => data?.holidays?.[a.date]
+  ).length;
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -131,12 +179,12 @@ function AnalyticsContent() {
           </div>
 
           {hospitalBreakdown.length > 0 && (
-            <Section title="By hospital">
+            <Section title="By location">
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="border-b border-[#1e293b] text-left text-xs uppercase text-cyan-400/70">
-                      <th className="px-3 py-2">Hospital</th>
+                      <th className="px-3 py-2">Location</th>
                       <th className="px-3 py-2">Slots</th>
                       <th className="px-3 py-2">Filled</th>
                       <th className="px-3 py-2">Gaps</th>
@@ -145,21 +193,18 @@ function AnalyticsContent() {
                   </thead>
                   <tbody>
                     {hospitalBreakdown.map((r) => {
-                      const badge = getHospitalBadge(r.hospital);
                       const gaps = r.total - r.filled;
                       return (
                         <tr
-                          key={r.hospital}
+                          key={r.key}
                           className="border-b border-[#1e293b] transition hover:bg-cyan-500/5"
                         >
                           <td className="px-3 py-2">
                             <span
-                              className={`inline-flex items-center gap-2 rounded-md border px-2 py-0.5 text-xs font-medium ${badge.badge}`}
+                              className="inline-flex items-center gap-2 rounded-md border border-slate-500/40 bg-slate-500/10 px-2 py-0.5 text-xs font-medium text-slate-300"
                             >
-                              {badge.short}
-                              <span className="text-slate-200">
-                                {HOSPITAL_LABELS[r.hospital]}
-                              </span>
+                              {r.code}
+                              <span className="text-slate-200">{r.name}</span>
                             </span>
                           </td>
                           <td className="px-3 py-2">{r.total}</td>
@@ -184,10 +229,25 @@ function AnalyticsContent() {
           )}
 
           <Section title="Fairness breakdown">
+            {breakdown && (
+              <>
+                <p className="mb-3 text-xs text-slate-400">
+                  Workload: shifts vs each person&apos;s target. Nights: spread
+                  among people who share nights (nocturnists excluded).
+                  Weekends: weekend share.
+                </p>
+                <div className="mb-4 grid grid-cols-1 gap-4 sm:grid-cols-3">
+                  <ScoreStat label="Workload" value={breakdown.workload} />
+                  <ScoreStat label="Nights" value={breakdown.nights} />
+                  <ScoreStat label="Weekends" value={breakdown.weekends} />
+                </div>
+              </>
+            )}
             <p className="mb-3 text-xs text-slate-400">
               Lower spread means a fairer split. Combined fairness score{" "}
               <span className="text-slate-200">{fairness ?? "—"}</span> is the
-              headline; the three measures below break it out by shift kind.
+              headline; the measures below show the raw spread across
+              physicians.
             </p>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <FairnessStat
@@ -269,7 +329,7 @@ function AnalyticsContent() {
             />
           </Section>
 
-          <Section title="Night distribution">
+          <Section title={`${CATEGORY_LABELS.NIGHT} distribution`}>
             <BarList
               stats={stats}
               value={(s) => s.nights}
@@ -278,16 +338,60 @@ function AnalyticsContent() {
             />
           </Section>
 
-          <Section title="Day admitting & weekend distribution">
+          <Section title="Weekends & holidays this month">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div className="text-sm text-slate-300">
+                <div className="text-xs font-medium uppercase tracking-wide text-cyan-400/70">
+                  Weekend days
+                </div>
+                <div className="mt-1">
+                  {[...weekendSet]
+                    .sort((a, b) => a - b)
+                    .map((d) => WEEKDAY_SHORT[d])
+                    .join(", ") || "None"}{" "}
+                  <span className="text-slate-500">
+                    · {weekendSlots} weekend slot{weekendSlots === 1 ? "" : "s"}
+                  </span>
+                </div>
+              </div>
+              <div className="text-sm text-slate-300">
+                <div className="text-xs font-medium uppercase tracking-wide text-cyan-400/70">
+                  Holidays
+                </div>
+                {holidayEntries.length === 0 ? (
+                  <div className="mt-1 text-slate-500">None this month</div>
+                ) : (
+                  <ul className="mt-1 space-y-0.5">
+                    {holidayEntries.map(([iso, name]) => (
+                      <li key={iso}>
+                        <span className="tabular-nums text-amber-300/80">
+                          {iso}
+                        </span>{" "}
+                        {name}
+                      </li>
+                    ))}
+                    <li className="text-slate-500">
+                      {holidaySlots} holiday slot{holidaySlots === 1 ? "" : "s"}
+                    </li>
+                  </ul>
+                )}
+              </div>
+            </div>
+          </Section>
+
+          <Section title="Shifts by type, weekends & holidays">
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-[#1e293b] text-left text-xs uppercase text-cyan-400/70">
                     <th className="px-3 py-2">Physician</th>
                     <th className="px-3 py-2">Total</th>
-                    <th className="px-3 py-2">Rounding</th>
-                    <th className="px-3 py-2">Day Admit</th>
-                    <th className="px-3 py-2">Nights</th>
+                    <th className="px-3 py-2">{CATEGORY_LABELS.DAY}</th>
+                    <th className="px-3 py-2">{CATEGORY_LABELS.ADMIT}</th>
+                    <th className="px-3 py-2">{CATEGORY_LABELS.NIGHT}</th>
+                    {showNightBlock && (
+                      <th className="px-3 py-2">Longest night block</th>
+                    )}
                     <th className="px-3 py-2">Weekends</th>
                     <th className="px-3 py-2">Holidays</th>
                     <th className="px-3 py-2">Nights cap</th>
@@ -304,6 +408,11 @@ function AnalyticsContent() {
                       <td className="px-3 py-2">{s.rounding}</td>
                       <td className="px-3 py-2">{s.admin}</td>
                       <td className="px-3 py-2">{s.nights}</td>
+                      {showNightBlock && (
+                        <td className="px-3 py-2">
+                          {s.longestNightBlock ?? "—"}
+                        </td>
+                      )}
                       <td className="px-3 py-2">{s.weekends}</td>
                       <td className="px-3 py-2 text-amber-300/80">
                         {s.holidays}
@@ -409,6 +518,27 @@ function Section({
     <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] p-5">
       <h2 className="mb-3 font-semibold uppercase tracking-wide text-slate-200">{title}</h2>
       {children}
+    </div>
+  );
+}
+
+function ScoreStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg border border-[#1e293b] bg-[#0a0e1a] p-3">
+      <div className="flex items-baseline justify-between">
+        <div className="text-xs font-medium uppercase tracking-wide text-amber-300">
+          {label}
+        </div>
+        <div className="text-lg font-bold tabular-nums text-slate-100">
+          {Math.round(value)}
+        </div>
+      </div>
+      <div className="mt-2 h-2 w-full overflow-hidden rounded-full bg-slate-800">
+        <div
+          className="h-full rounded-full bg-gradient-to-r from-cyan-400 via-fuchsia-400 to-amber-400"
+          style={{ width: `${Math.max(Math.min(value, 100), 4)}%` }}
+        />
+      </div>
     </div>
   );
 }
