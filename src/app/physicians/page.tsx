@@ -2,21 +2,14 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { fetchPhysicians } from "@/lib/client";
-import type { PhysicianDTO } from "@/lib/api-types";
-import { getHospitalBadge } from "@/lib/shift-style";
-import { COMMUNITY_HOSPITALS } from "@/lib/scheduler/shifts";
-import type { Hospital } from "@prisma/client";
-
-/** Map a community hospital to its physician eligibility flag. */
-const ELIGIBILITY_FLAG: Record<
-  (typeof COMMUNITY_HOSPITALS)[number],
-  "canWorkCarson" | "canWorkEaton" | "canWorkClinton"
-> = {
-  CARSON: "canWorkCarson",
-  EATON: "canWorkEaton",
-  CLINTON: "canWorkClinton",
-};
+import {
+  createPhysician,
+  deletePhysician,
+  fetchConfig,
+  fetchPhysicians,
+  updatePhysician,
+} from "@/lib/client";
+import type { LocationDTO, PhysicianDTO } from "@/lib/api-types";
 
 type Draft = Partial<PhysicianDTO> & {
   unavailableText?: string;
@@ -38,9 +31,7 @@ const EMPTY: Draft = {
   shiftPreference: "NEUTRAL",
   nightEligible: true,
   adminEligible: true,
-  canWorkCarson: false,
-  canWorkEaton: false,
-  canWorkClinton: false,
+  locationIds: [],
   notes: "",
   unavailableText: "",
   preferredText: "",
@@ -49,6 +40,7 @@ const EMPTY: Draft = {
 export default function PhysiciansPage() {
   const now = new Date();
   const [physicians, setPhysicians] = useState<PhysicianDTO[]>([]);
+  const [locations, setLocations] = useState<LocationDTO[]>([]);
   const [editing, setEditing] = useState<Draft | null>(null);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState<string | null>(null);
@@ -56,7 +48,12 @@ export default function PhysiciansPage() {
   const load = async () => {
     setLoading(true);
     try {
-      setPhysicians(await fetchPhysicians());
+      const [list, config] = await Promise.all([
+        fetchPhysicians(),
+        fetchConfig().catch(() => null),
+      ]);
+      setPhysicians(list);
+      if (config) setLocations(config.locations);
     } catch {
       setMessage("Could not load physicians. Is the database connected?");
     } finally {
@@ -104,18 +101,22 @@ export default function PhysiciansPage() {
       )
     )
       return;
-    await fetch(`/api/physicians/${p.id}`, { method: "DELETE" });
+    await deletePhysician(p.id).catch(() => null);
     await load();
   };
 
   const toggleActive = async (p: PhysicianDTO) => {
-    await fetch(`/api/physicians/${p.id}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ...p, active: !p.active }),
-    });
+    try {
+      await updatePhysician(p.id, { active: !p.active });
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Failed to update physician.");
+    }
     await load();
   };
+
+  /** Restricted, active locations — the only ones that need per-physician permission. */
+  const restricted = locations.filter((l) => l.active && !l.openToAll);
+  const locationById = new Map(locations.map((l) => [l.id, l]));
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -163,7 +164,7 @@ export default function PhysiciansPage() {
               <th className="px-4 py-2">Desired</th>
               <th className="px-4 py-2">Min/Max</th>
               <th className="px-4 py-2">Nights</th>
-              <th className="px-4 py-2">Day Admit</th>
+              <th className="px-4 py-2">Admitting</th>
               <th className="px-4 py-2">Pref</th>
               <th className="px-4 py-2">Dates</th>
               <th className="px-4 py-2"></th>
@@ -180,20 +181,19 @@ export default function PhysiciansPage() {
                     {p.fullName}
                   </span>
                   <span className="ml-2 inline-flex flex-wrap gap-1 align-middle">
-                    {COMMUNITY_HOSPITALS.filter((h) => p[ELIGIBILITY_FLAG[h]]).map(
-                      (h) => {
-                        const badge = getHospitalBadge(h as Hospital);
-                        return (
-                          <span
-                            key={h}
-                            className={`rounded-sm border px-1 text-[9px] font-semibold uppercase leading-tight ${badge.badge}`}
-                            title={`Eligible: ${badge.label}`}
-                          >
-                            {badge.short}
-                          </span>
-                        );
-                      }
-                    )}
+                    {p.locationIds
+                      .map((lid) => locationById.get(lid))
+                      .filter((l): l is LocationDTO => Boolean(l && l.active && !l.openToAll))
+                      .sort((a, b) => a.sortOrder - b.sortOrder)
+                      .map((l) => (
+                        <span
+                          key={l.id}
+                          className="rounded-sm border border-violet-400/60 bg-violet-500/10 px-1 text-[9px] font-semibold uppercase leading-tight text-violet-300"
+                          title={`Can work at ${l.name}`}
+                        >
+                          {l.code}
+                        </span>
+                      ))}
                   </span>
                 </td>
                 <td className="px-4 py-2">
@@ -217,7 +217,7 @@ export default function PhysiciansPage() {
                   {p.nightEligible ? `${p.minNights}–${p.maxNights}` : "—"}
                 </td>
                 <td className="px-4 py-2 tabular-nums">
-                  {p.adminEligible ? `0–${p.maxAdmin}` : "—"}
+                  {p.adminEligible ? `${p.minAdmin}–${p.maxAdmin}` : "—"}
                 </td>
                 <td className="px-4 py-2 text-slate-400">{p.shiftPreference}</td>
                 <td className="px-4 py-2 text-xs text-slate-400">
@@ -277,6 +277,8 @@ export default function PhysiciansPage() {
       {editing && (
         <PhysicianForm
           draft={editing}
+          restricted={restricted}
+          openLocations={locations.filter((l) => l.active && l.openToAll)}
           onClose={() => setEditing(null)}
           onSaved={async () => {
             setEditing(null);
@@ -290,15 +292,20 @@ export default function PhysiciansPage() {
 
 function PhysicianForm({
   draft,
+  restricted,
+  openLocations,
   onClose,
   onSaved,
 }: {
   draft: Draft;
+  restricted: LocationDTO[];
+  openLocations: LocationDTO[];
   onClose: () => void;
   onSaved: () => void;
 }) {
   const [form, setForm] = useState<Draft>(draft);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const isEdit = Boolean(form.id);
 
   const set = (key: keyof Draft, value: unknown) =>
@@ -312,20 +319,21 @@ function PhysicianForm({
 
   const save = async () => {
     setSaving(true);
+    setError(null);
     try {
-      const payload = {
+      const payload: Draft = {
         ...form,
+        locationIds: form.locationIds ?? [],
         unavailableDates: parseDates(form.unavailableText),
         preferredDates: parseDates(form.preferredText),
       };
-      const url = isEdit ? `/api/physicians/${form.id}` : "/api/physicians";
-      const method = isEdit ? "PUT" : "POST";
-      await fetch(url, {
-        method,
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      });
+      delete payload.unavailableText;
+      delete payload.preferredText;
+      if (isEdit && form.id) await updatePhysician(form.id, payload);
+      else await createPhysician(payload);
       onSaved();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to save physician.");
     } finally {
       setSaving(false);
     }
@@ -370,12 +378,12 @@ function PhysicianForm({
           {numField("desiredShifts", "Desired")}
           {numField("minShifts", "Min shifts")}
           {numField("maxShifts", "Max shifts")}
-          {numField("minRounding", "Min round")}
-          {numField("maxRounding", "Max round")}
-          {numField("minNights", "Min nights")}
-          {numField("maxNights", "Max nights")}
-          {numField("minAdmin", "Min day admit")}
-          {numField("maxAdmin", "Max day admit")}
+          {numField("minRounding", "Min day shifts")}
+          {numField("maxRounding", "Max day shifts")}
+          {numField("minNights", "Min night shifts")}
+          {numField("maxNights", "Max night shifts")}
+          {numField("minAdmin", "Min admitting shifts")}
+          {numField("maxAdmin", "Max admitting shifts")}
         </div>
 
         <div className="mb-4 flex flex-wrap gap-4">
@@ -385,7 +393,7 @@ function PhysicianForm({
               checked={form.nightEligible ?? false}
               onChange={(e) => set("nightEligible", e.target.checked)}
             />
-            Night eligible
+            Can work nights
           </label>
           <label className="flex items-center gap-2 text-sm">
             <input
@@ -393,21 +401,8 @@ function PhysicianForm({
               checked={form.adminEligible ?? false}
               onChange={(e) => set("adminEligible", e.target.checked)}
             />
-            Day admitting eligible
+            Can work admitting shifts
           </label>
-          {COMMUNITY_HOSPITALS.map((h) => {
-            const flag = ELIGIBILITY_FLAG[h];
-            return (
-              <label key={h} className="flex items-center gap-2 text-sm">
-                <input
-                  type="checkbox"
-                  checked={(form[flag] as boolean) ?? false}
-                  onChange={(e) => set(flag, e.target.checked)}
-                />
-                {getHospitalBadge(h as Hospital).label}
-              </label>
-            );
-          })}
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -429,6 +424,56 @@ function PhysicianForm({
             </select>
           </label>
         </div>
+
+        <fieldset className="mb-4 rounded-lg border border-[#1e293b] bg-[#0a0e1a] p-3">
+          <legend className="px-1 text-xs font-medium text-slate-300">Can work at</legend>
+          {restricted.length === 0 ? (
+            <p className="text-xs text-slate-400">
+              Every location is open to everyone. To limit a location to certain
+              physicians, turn off &ldquo;open to everyone&rdquo; in{" "}
+              <Link href="/settings" className="text-cyan-400 hover:text-cyan-300 hover:underline">
+                Settings
+              </Link>
+              .
+            </p>
+          ) : (
+            <div className="flex flex-wrap gap-x-4 gap-y-2">
+              {restricted.map((l) => {
+                const ids = form.locationIds ?? [];
+                const on = ids.includes(l.id);
+                return (
+                  <label key={l.id} className="flex min-h-[44px] items-center gap-2 text-sm md:min-h-0">
+                    <input
+                      type="checkbox"
+                      checked={on}
+                      onChange={(e) =>
+                        set(
+                          "locationIds",
+                          e.target.checked
+                            ? [...ids.filter((x) => x !== l.id), l.id]
+                            : ids.filter((x) => x !== l.id)
+                        )
+                      }
+                    />
+                    {l.name}
+                    <span className="text-[10px] uppercase text-slate-500">{l.code}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+          {openLocations.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1">
+              {openLocations.map((l) => (
+                <label key={l.id} className="flex items-center gap-2 text-sm text-slate-400">
+                  <input type="checkbox" checked disabled />
+                  {l.name}
+                  <span className="text-[10px] text-slate-500">open to everyone</span>
+                </label>
+              ))}
+            </div>
+          )}
+        </fieldset>
 
         <div className="mb-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
           <label className="block">
@@ -464,6 +509,12 @@ function PhysicianForm({
             className="mt-0.5 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-2 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
           />
         </label>
+
+        {error && (
+          <p className="mb-3 rounded-md border border-rose-400/50 bg-rose-500/10 px-3 py-2 text-xs text-rose-300">
+            {error}
+          </p>
+        )}
 
         <div className="flex justify-end gap-2">
           <button

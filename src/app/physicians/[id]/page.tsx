@@ -6,8 +6,13 @@ import { useParams, useSearchParams } from "next/navigation";
 import { MonthPicker } from "@/components/MonthPicker";
 import { ShiftChip } from "@/components/ShiftChip";
 import { Card, CardHeader } from "@/components/Card";
-import { MONTH_NAMES, SHIFT_STYLES, getHospitalBadge } from "@/lib/shift-style";
-import { HOSPITALS, COMMUNITY_HOSPITALS } from "@/lib/scheduler/shifts";
+import { MONTH_NAMES, WEEKDAY_SHORT, colorStyle } from "@/lib/shift-style";
+import {
+  CATEGORY_LABELS,
+  shiftHours,
+  slotLabel,
+  templateKeyOf,
+} from "@/lib/scheduler/shifts";
 import {
   addDaysISO,
   daysInMonth,
@@ -16,30 +21,29 @@ import {
   utcDate,
 } from "@/lib/scheduler/dates";
 import {
+  fetchConfig,
   fetchMonth,
   fetchPhysicians,
   fetchTimeOff,
   saveTimeOff,
   deleteTimeOff,
   resetIcsToken,
+  updatePhysician,
 } from "@/lib/client";
 import type {
   AssignmentDTO,
+  ConfigDTO,
   MonthScheduleDTO,
   PhysicianDTO,
   TimeOffDTO,
 } from "@/lib/api-types";
-import type { ShiftType } from "@prisma/client";
 
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_NAMES = WEEKDAY_SHORT;
 
-/** Whole-hour duration of a shift, accounting for overnight wrap. */
-function shiftHours(start: string, end: string): number {
-  const [sh, sm] = start.split(":").map(Number);
-  const [eh, em] = end.split(":").map(Number);
-  let mins = eh * 60 + em - (sh * 60 + sm);
-  if (mins <= 0) mins += 24 * 60;
-  return Math.round(mins / 60);
+/** Shift length for display: whole hours, or one decimal when needed. */
+function hoursLabel(start: string, end: string): string {
+  const h = shiftHours(start, end);
+  return Number.isInteger(h) ? String(h) : h.toFixed(1);
 }
 
 function PhysicianDetailContent() {
@@ -56,17 +60,20 @@ function PhysicianDetailContent() {
   );
   const [physician, setPhysician] = useState<PhysicianDTO | null>(null);
   const [data, setData] = useState<MonthScheduleDTO | null>(null);
+  const [config, setConfig] = useState<ConfigDTO | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [physicians, monthData] = await Promise.all([
+      const [physicians, monthData, cfg] = await Promise.all([
         fetchPhysicians(),
         fetchMonth(year, month),
+        fetchConfig().catch(() => null),
       ]);
       setPhysician(physicians.find((p) => p.id === id) ?? null);
       setData(monthData);
+      if (cfg) setConfig(cfg);
     } finally {
       setLoading(false);
     }
@@ -83,10 +90,37 @@ function PhysicianDetailContent() {
   );
 
   const byDate = useMemo(() => {
-    const map = new Map<string, AssignmentDTO>();
-    for (const a of mine) map.set(a.date, a);
+    const map = new Map<string, AssignmentDTO[]>();
+    for (const a of mine) {
+      const arr = map.get(a.date) ?? [];
+      arr.push(a);
+      map.set(a.date, arr);
+    }
     return map;
   }, [mine]);
+
+  /** Highest slot index per (date, shift template), across the whole month. */
+  const maxSlot = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of data?.assignments ?? []) {
+      const k = `${a.date}|${templateKeyOf(a)}`;
+      m.set(k, Math.max(m.get(k) ?? 0, a.slotIndex));
+    }
+    return m;
+  }, [data]);
+
+  const labelOf = useCallback(
+    (a: AssignmentDTO) =>
+      slotLabel(
+        a.shiftCode,
+        a.slotIndex,
+        (maxSlot.get(`${a.date}|${templateKeyOf(a)}`) ?? 1) > 1
+      ),
+    [maxSlot]
+  );
+
+  const multiLocation = (data?.locations.length ?? 0) > 1;
+  const holidays = useMemo(() => data?.holidays ?? {}, [data]);
 
   const unavailable = useMemo(
     () => new Set(physician?.unavailableDates ?? []),
@@ -94,31 +128,75 @@ function PhysicianDetailContent() {
   );
 
   const counts = useMemo(() => {
+    const weekendDays = new Set(data?.weekendDays ?? [0, 6]);
     const c = {
       total: mine.length,
-      rounding: 0,
-      admin: 0,
-      night1: 0,
-      night2: 0,
+      day: 0,
+      admit: 0,
+      night: 0,
       weekends: 0,
+      holidays: 0,
     };
     for (const a of mine) {
-      if (a.shiftType === "ROUNDER") c.rounding += 1;
-      else if (a.shiftType === "ADMIN") c.admin += 1;
-      else if (a.shiftType === "NIGHT_ADMIT_1") c.night1 += 1;
-      else if (a.shiftType === "NIGHT_ADMIT_2") c.night2 += 1;
-      if (isWeekend(a.date)) c.weekends += 1;
+      if (a.category === "DAY") c.day += 1;
+      else if (a.category === "ADMIT") c.admit += 1;
+      else if (a.category === "NIGHT") c.night += 1;
+      if (isWeekend(a.date, weekendDays)) c.weekends += 1;
+      if (holidays[a.date]) c.holidays += 1;
     }
     return c;
+  }, [mine, data, holidays]);
+
+  const byLocation = useMemo(() => {
+    const order = new Map(
+      (data?.locations ?? []).map((l) => [l.id, l.sortOrder])
+    );
+    const map = new Map<
+      string,
+      { key: string; name: string; code: string; sort: number; count: number }
+    >();
+    for (const a of mine) {
+      const key = a.locationId ?? a.locationName;
+      const row = map.get(key) ?? {
+        key,
+        name: a.locationName,
+        code: a.locationCode,
+        sort: (a.locationId ? order.get(a.locationId) : undefined) ?? 999,
+        count: 0,
+      };
+      row.count += 1;
+      map.set(key, row);
+    }
+    return [...map.values()].sort(
+      (a, b) => a.sort - b.sort || a.name.localeCompare(b.name)
+    );
+  }, [mine, data]);
+
+  const byShift = useMemo(() => {
+    const map = new Map<
+      string,
+      { key: string; name: string; color: string; locationCode: string; count: number }
+    >();
+    for (const a of mine) {
+      const key = templateKeyOf(a);
+      const row = map.get(key) ?? {
+        key,
+        name: a.shiftName,
+        color: a.color,
+        locationCode: a.locationCode,
+        count: 0,
+      };
+      row.count += 1;
+      map.set(key, row);
+    }
+    return [...map.values()];
   }, [mine]);
 
-  const byHospital = useMemo(() => {
-    const map = new Map<string, number>();
-    for (const a of mine) map.set(a.hospital, (map.get(a.hospital) ?? 0) + 1);
-    return HOSPITALS.map((h) => ({ hospital: h, count: map.get(h) ?? 0 })).filter(
-      (r) => r.count > 0
-    );
-  }, [mine]);
+  const restrictedAllowed = (config?.locations ?? [])
+    .filter(
+      (l) => l.active && !l.openToAll && physician?.locationIds.includes(l.id)
+    )
+    .sort((a, b) => a.sortOrder - b.sortOrder);
 
   const scheduleExists =
     Boolean(data?.lastRun) || (data?.assignments.length ?? 0) > 0;
@@ -172,32 +250,23 @@ function PhysicianDetailContent() {
           <div className="mt-2 flex flex-wrap gap-2">
             {physician.nightEligible && (
               <span className="rounded-md border border-teal-400/50 bg-teal-500/10 px-2 py-0.5 text-xs font-medium text-teal-300">
-                Night eligible
+                Can work nights
               </span>
             )}
             {physician.adminEligible && (
               <span className="rounded-md border border-amber-400/50 bg-amber-500/10 px-2 py-0.5 text-xs font-medium text-amber-300">
-                Day admitting eligible
+                Can work admitting shifts
               </span>
             )}
-            {COMMUNITY_HOSPITALS.filter(
-              (h) =>
-                ({
-                  CARSON: physician.canWorkCarson,
-                  EATON: physician.canWorkEaton,
-                  CLINTON: physician.canWorkClinton,
-                }[h])
-            ).map((h) => {
-              const badge = getHospitalBadge(h);
-              return (
-                <span
-                  key={h}
-                  className={`rounded-md border px-2 py-0.5 text-xs font-medium ${badge.badge}`}
-                >
-                  {badge.label}
-                </span>
-              );
-            })}
+            {restrictedAllowed.map((l) => (
+              <span
+                key={l.id}
+                className="rounded-md border border-violet-400/60 bg-violet-500/10 px-2 py-0.5 text-xs font-medium text-violet-300"
+                title={`Can work at ${l.name}`}
+              >
+                {l.name}
+              </span>
+            ))}
           </div>
         </div>
         <div className="flex flex-col items-end gap-2">
@@ -222,9 +291,15 @@ function PhysicianDetailContent() {
 
       <div className="my-8 h-px bg-gradient-to-r from-transparent via-cyan-900/40 to-transparent" />
 
-      <WorkloadCard physician={physician} onSaved={load} />
+      <WorkloadCard
+        physician={physician}
+        defaultNightBlock={config?.settings.preferredNightBlock ?? null}
+        onSaved={load}
+      />
 
       <PreferencesCard physician={physician} onSaved={load} />
+
+      <LocationsCard physician={physician} config={config} onSaved={load} />
 
       <CalendarFeedCard physician={physician} />
 
@@ -250,11 +325,11 @@ function PhysicianDetailContent() {
         <>
           <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
             <SummaryCard label="Total shifts" value={counts.total} />
-            <SummaryCard label="Rounding" value={counts.rounding} />
-            <SummaryCard label="Day admitting" value={counts.admin} />
+            <SummaryCard label={`${CATEGORY_LABELS.DAY} shifts`} value={counts.day} />
+            <SummaryCard label={`${CATEGORY_LABELS.ADMIT} shifts`} value={counts.admit} />
+            <SummaryCard label={`${CATEGORY_LABELS.NIGHT} shifts`} value={counts.night} />
             <SummaryCard label="Weekend shifts" value={counts.weekends} />
-            <SummaryCard label="Night Admit 1" value={counts.night1} />
-            <SummaryCard label="Night Admit 2" value={counts.night2} />
+            <SummaryCard label="Holiday shifts" value={counts.holidays} />
             <SummaryCard
               label="Vs. desired"
               value={`${counts.total} of ${physician.desiredShifts}`}
@@ -275,25 +350,40 @@ function PhysicianDetailContent() {
 
           <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] p-5">
             <h2 className="mb-3 font-semibold uppercase tracking-wide text-slate-200">
-              By hospital
+              {multiLocation ? "By location and shift" : "By shift"}
             </h2>
-            {byHospital.length === 0 ? (
+            {mine.length === 0 ? (
               <p className="text-sm text-slate-400">No assignments this month.</p>
             ) : (
-              <div className="flex flex-wrap gap-2">
-                {byHospital.map(({ hospital, count }) => {
-                  const badge = getHospitalBadge(hospital);
-                  return (
+              <>
+                {multiLocation && (
+                  <div className="mb-3 flex flex-wrap gap-2">
+                    {byLocation.map((l) => (
+                      <span
+                        key={l.key}
+                        className="inline-flex items-center gap-2 rounded-md border border-violet-400/60 bg-violet-500/10 px-3 py-1 text-sm font-medium text-violet-300"
+                      >
+                        {l.name}
+                        <span className="font-bold">{l.count}</span>
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-2">
+                  {byShift.map((r) => (
                     <span
-                      key={hospital}
-                      className={`inline-flex items-center gap-2 rounded-md border px-3 py-1 text-sm font-medium ${badge.badge}`}
+                      key={r.key}
+                      className={`inline-flex items-center gap-2 rounded-md border px-3 py-1 text-sm font-medium ${colorStyle(r.color).badge}`}
                     >
-                      {badge.label}
-                      <span className="font-bold">{count}</span>
+                      {r.name}
+                      {multiLocation && (
+                        <span className="text-[10px] uppercase opacity-70">{r.locationCode}</span>
+                      )}
+                      <span className="font-bold">{r.count}</span>
                     </span>
-                  );
-                })}
-              </div>
+                  ))}
+                </div>
+              </>
             )}
           </div>
 
@@ -302,9 +392,16 @@ function PhysicianDetailContent() {
             month={month}
             byDate={byDate}
             unavailable={unavailable}
+            holidays={holidays}
+            labelOf={labelOf}
           />
 
-          <AssignmentTable assignments={mine} />
+          <AssignmentTable
+            assignments={mine}
+            labelOf={labelOf}
+            holidays={holidays}
+            showLocation={multiLocation}
+          />
         </>
       )}
     </div>
@@ -316,11 +413,15 @@ function CalendarGrid({
   month,
   byDate,
   unavailable,
+  holidays,
+  labelOf,
 }: {
   year: number;
   month: number;
-  byDate: Map<string, AssignmentDTO>;
+  byDate: Map<string, AssignmentDTO[]>;
   unavailable: Set<string>;
+  holidays: Record<string, string>;
+  labelOf: (a: AssignmentDTO) => string;
 }) {
   const days = daysInMonth(year, month);
   const firstDow = utcDate(year, month, 1).getUTCDay();
@@ -344,31 +445,36 @@ function CalendarGrid({
       <div className="grid grid-cols-7 gap-1">
         {cells.map((iso, i) => {
           if (!iso) return <div key={`empty-${i}`} className="min-h-[60px]" />;
-          const a = byDate.get(iso);
+          const list = byDate.get(iso) ?? [];
+          const a = list[0];
           const off = unavailable.has(iso);
-          const style = a ? SHIFT_STYLES[a.shiftType as ShiftType] : null;
+          const holiday = holidays[iso];
           const dayNum = Number(iso.slice(8));
           return (
             <div
               key={iso}
+              title={holiday || undefined}
               className={`min-h-[60px] rounded-md border p-1 text-left ${
-                a && style
-                  ? style.chip
-                  : "border-[#1e293b] bg-[#0a0e1a]"
+                a ? colorStyle(a.color).chip : "border-[#1e293b] bg-[#0a0e1a]"
               }`}
             >
               <div
-                className={`text-[10px] font-semibold ${
+                className={`flex items-center gap-1 text-[10px] font-semibold ${
                   off ? "text-slate-500 line-through" : "text-slate-400"
                 }`}
               >
                 {dayNum}
+                {holiday && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-fuchsia-400" aria-label={holiday} />
+                )}
               </div>
-              {a && style ? (
-                <div className="mt-1 text-[10px] font-medium leading-tight">
-                  {a.shiftType === "ROUNDER" && a.rounderIndex
-                    ? `R${a.rounderIndex}`
-                    : style.label}
+              {list.length > 0 ? (
+                <div className="mt-1 space-y-0.5 text-[10px] font-medium leading-tight">
+                  {list.map((x) => (
+                    <div key={x.id} title={`${x.shiftName} · ${x.locationName}`}>
+                      {labelOf(x)}
+                    </div>
+                  ))}
                 </div>
               ) : off ? (
                 <div className="mt-1 text-[10px] text-slate-500 line-through">
@@ -383,9 +489,23 @@ function CalendarGrid({
   );
 }
 
-function AssignmentTable({ assignments }: { assignments: AssignmentDTO[] }) {
+function AssignmentTable({
+  assignments,
+  labelOf,
+  holidays,
+  showLocation,
+}: {
+  assignments: AssignmentDTO[];
+  labelOf: (a: AssignmentDTO) => string;
+  holidays: Record<string, string>;
+  showLocation: boolean;
+}) {
   const rows = [...assignments].sort((a, b) =>
-    a.date < b.date ? -1 : a.date > b.date ? 1 : 0
+    a.date < b.date
+      ? -1
+      : a.date > b.date
+        ? 1
+        : a.startTime.localeCompare(b.startTime)
   );
 
   if (rows.length === 0) {
@@ -414,20 +534,22 @@ function AssignmentTable({ assignments }: { assignments: AssignmentDTO[] }) {
             const notes: string[] = [];
             if (a.isManual) notes.push("manually edited");
             if (a.isLocked) notes.push("locked");
+            if (holidays[a.date]) notes.push(holidays[a.date]);
             return (
               <tr key={a.id} className="border-b border-[#1e293b] transition hover:bg-cyan-500/5">
                 <td className="px-4 py-2 font-medium text-slate-200">{a.date}</td>
                 <td className="px-4 py-2 text-slate-400">{dow}</td>
                 <td className="px-4 py-2">
                   <ShiftChip
-                    shiftType={a.shiftType}
-                    rounderIndex={a.rounderIndex}
-                    name={a.physicianName}
-                    hospital={a.hospital}
+                    label={labelOf(a)}
+                    color={a.color}
+                    name={`${labelOf(a)} · ${a.shiftName}`}
+                    locationCode={showLocation ? a.locationCode : null}
+                    title={`${a.shiftName} at ${a.locationName} (${CATEGORY_LABELS[a.category]})`}
                   />
                 </td>
                 <td className="px-4 py-2 text-slate-400">
-                  {shiftHours(a.startTime, a.endTime)}h
+                  {hoursLabel(a.startTime, a.endTime)}h
                   <span className="ml-1 text-xs text-slate-500">
                     ({a.startTime}–{a.endTime})
                   </span>
@@ -664,9 +786,11 @@ function TimeOffCard({
 
 function WorkloadCard({
   physician,
+  defaultNightBlock,
   onSaved,
 }: {
   physician: PhysicianDTO;
+  defaultNightBlock: number | null;
   onSaved: () => void | Promise<void>;
 }) {
   const [fte, setFte] = useState(physician.fteMultiplier);
@@ -676,6 +800,14 @@ function WorkloadCard({
       : String(physician.monthlyShiftTarget)
   );
   const [maxDays, setMaxDays] = useState(physician.maxConsecutiveDays);
+  const [maxNightsRow, setMaxNightsRow] = useState(
+    physician.maxConsecutiveNights ?? 7
+  );
+  const [nightBlock, setNightBlock] = useState<string>(
+    physician.preferredNightBlock == null
+      ? ""
+      : String(physician.preferredNightBlock)
+  );
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
 
@@ -683,20 +815,20 @@ function WorkloadCard({
     setSaving(true);
     setMessage(null);
     try {
-      const res = await fetch(`/api/physicians/${physician.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          fteMultiplier: fte,
-          monthlyShiftTarget: target === "" ? null : Number(target),
-          maxConsecutiveDays: maxDays,
-        }),
+      await updatePhysician(physician.id, {
+        fteMultiplier: fte,
+        monthlyShiftTarget: target === "" ? null : Number(target),
+        maxConsecutiveDays: maxDays,
+        maxConsecutiveNights: maxNightsRow,
+        preferredNightBlock:
+          nightBlock === ""
+            ? null
+            : Math.min(31, Math.max(1, Math.round(Number(nightBlock)))),
       });
-      if (!res.ok) throw new Error();
       setMessage("Workload saved.");
       await onSaved();
-    } catch {
-      setMessage("Failed to save.");
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Failed to save.");
     } finally {
       setSaving(false);
     }
@@ -764,6 +896,47 @@ function WorkloadCard({
             className="mt-0.5 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1.5 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
           />
         </label>
+        <label className="block">
+          <span className="text-xs font-medium text-slate-300">
+            Max nights in a row{" "}
+            <span className="text-slate-500">(1–31)</span>
+          </span>
+          <input
+            type="number"
+            min={1}
+            max={31}
+            value={maxNightsRow}
+            onChange={(e) => {
+              const n = Number(e.target.value);
+              if (Number.isFinite(n))
+                setMaxNightsRow(Math.min(31, Math.max(1, Math.round(n))));
+            }}
+            className="mt-0.5 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1.5 text-sm text-slate-200 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
+          />
+        </label>
+        <label className="block">
+          <span className="text-xs font-medium text-slate-300">
+            Preferred night block{" "}
+            <span className="text-slate-500">(nights in a row)</span>
+          </span>
+          <input
+            type="number"
+            min={1}
+            max={31}
+            value={nightBlock}
+            placeholder={
+              defaultNightBlock != null
+                ? `Group default (${defaultNightBlock})`
+                : "Group default"
+            }
+            onChange={(e) => setNightBlock(e.target.value)}
+            className="mt-0.5 w-full rounded-md border border-[#1e293b] bg-[#0a0e1a] px-2 py-1.5 text-sm text-slate-200 placeholder:text-slate-500 focus:border-cyan-400 focus:outline-none focus:ring-1 focus:ring-cyan-400/50"
+          />
+          <span className="mt-0.5 block text-[11px] text-slate-500">
+            Leave blank to use the group default
+            {defaultNightBlock != null ? ` (${defaultNightBlock})` : ""}.
+          </span>
+        </label>
       </div>
       <div className="mt-4 flex items-center gap-3">
         <button
@@ -781,8 +954,10 @@ function WorkloadCard({
         </summary>
         <p className="mt-2 leading-relaxed">
           FTE scales the auto-computed monthly target. Leave the target blank to
-          derive it from the FTE-weighted average. Max consecutive days is a hard
-          cap the scheduler never exceeds.
+          derive it from the FTE-weighted average. Max consecutive days and max
+          nights in a row are hard caps the scheduler never exceeds. The
+          preferred night block is how many nights the scheduler tries to group
+          together when it gives this physician nights.
         </p>
       </details>
     </div>
@@ -870,25 +1045,17 @@ function PreferencesCard({
     try {
       const avoidWeekdays: Record<string, boolean> = {};
       for (const d of avoidDays) avoidWeekdays[String(d)] = true;
-      const res = await fetch(`/api/physicians/${physician.id}`, {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          prefersNights: nights === "prefer",
-          avoidsNights: nights === "avoid",
-          prefersWeekends: weekends === "prefer",
-          avoidsWeekends: weekends === "avoid",
-          prefersDayAdmit: dayAdmit === "prefer",
-          avoidsDayAdmit: dayAdmit === "avoid",
-          avoidWeekdays,
-          maxNightsPerMonth: maxNights,
-          maxWeekendsPerMonth: maxWeekends,
-        }),
+      await updatePhysician(physician.id, {
+        prefersNights: nights === "prefer",
+        avoidsNights: nights === "avoid",
+        prefersWeekends: weekends === "prefer",
+        avoidsWeekends: weekends === "avoid",
+        prefersDayAdmit: dayAdmit === "prefer",
+        avoidsDayAdmit: dayAdmit === "avoid",
+        avoidWeekdays,
+        maxNightsPerMonth: maxNights,
+        maxWeekendsPerMonth: maxWeekends,
       });
-      if (!res.ok) {
-        const body = await res.json().catch(() => null);
-        throw new Error(body?.error ?? "Failed to save preferences.");
-      }
       setMessage("Preferences saved.");
       await onSaved();
     } catch (e) {
@@ -906,10 +1073,10 @@ function PreferencesCard({
       />
 
       <div className="space-y-3">
-        <DirectionRow label="Nights" value={nights} onChange={setNights} />
+        <DirectionRow label="Night shifts" value={nights} onChange={setNights} />
         <DirectionRow label="Weekends" value={weekends} onChange={setWeekends} />
         <DirectionRow
-          label="Day Admitting"
+          label="Admitting shifts"
           value={dayAdmit}
           onChange={setDayAdmit}
         />
@@ -947,7 +1114,7 @@ function PreferencesCard({
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
         <CapField
-          label="Max nights per month"
+          label="Max night shifts per month"
           value={maxNights}
           onChange={(v) => {
             setMessage(null);
@@ -1096,6 +1263,140 @@ function CapField({
   );
 }
 
+function LocationsCard({
+  physician,
+  config,
+  onSaved,
+}: {
+  physician: PhysicianDTO;
+  config: ConfigDTO | null;
+  onSaved: () => void | Promise<void>;
+}) {
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(physician.locationIds)
+  );
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    setSelected(new Set(physician.locationIds));
+  }, [physician]);
+
+  const active = (config?.locations ?? [])
+    .filter((l) => l.active)
+    .sort((a, b) => a.sortOrder - b.sortOrder);
+  const restricted = active.filter((l) => !l.openToAll);
+  const open = active.filter((l) => l.openToAll);
+
+  const initialKey = [...physician.locationIds].sort().join(",");
+  const dirty = [...selected].sort().join(",") !== initialKey;
+
+  const toggle = (lid: string) => {
+    setMessage(null);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(lid)) next.delete(lid);
+      else next.add(lid);
+      return next;
+    });
+  };
+
+  const save = async () => {
+    setSaving(true);
+    setMessage(null);
+    try {
+      await updatePhysician(physician.id, { locationIds: [...selected] });
+      setMessage("Locations saved.");
+      await onSaved();
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Failed to save.");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="mb-6 rounded-xl border border-[#1e293b] bg-[#0f172a] p-5">
+      <h2 className="mb-1 flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.2em] text-cyan-300">
+        <span className="inline-block h-2 w-2 bg-cyan-400 shadow-[0_0_8px_rgba(34,211,238,0.6)]" />
+        Can work at
+      </h2>
+      {!config ? (
+        <p className="text-xs text-slate-400">Loading locations…</p>
+      ) : (
+        <>
+          <p className="mb-3 text-xs text-slate-400">
+            Some locations are limited to listed physicians. Tick the ones this
+            physician may cover.
+          </p>
+          {restricted.length === 0 ? (
+            <p className="text-sm text-slate-400">
+              Every location is open to everyone. To limit a location to certain
+              physicians, turn off &ldquo;open to everyone&rdquo; in{" "}
+              <Link
+                href="/settings"
+                className="text-cyan-400 hover:text-cyan-300 hover:underline"
+              >
+                Settings
+              </Link>
+              .
+            </p>
+          ) : (
+            <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
+              {restricted.map((l) => (
+                <label
+                  key={l.id}
+                  className="flex min-h-[44px] items-center gap-2 rounded-md px-1 text-sm text-slate-200 md:min-h-0 md:py-1"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selected.has(l.id)}
+                    onChange={() => toggle(l.id)}
+                  />
+                  {l.name}
+                  <span className="text-[10px] uppercase text-slate-500">
+                    {l.code}
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+          {open.length > 0 && (
+            <div className="mt-2 grid grid-cols-1 gap-1 sm:grid-cols-2">
+              {open.map((l) => (
+                <label
+                  key={l.id}
+                  className="flex items-center gap-2 px-1 py-1 text-sm text-slate-400"
+                >
+                  <input type="checkbox" checked disabled />
+                  {l.name}
+                  <span className="text-[10px] text-slate-500">
+                    open to everyone
+                  </span>
+                </label>
+              ))}
+            </div>
+          )}
+          {restricted.length > 0 && (
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                onClick={save}
+                disabled={saving || !dirty}
+                className="min-h-[44px] rounded-lg border border-cyan-400/60 bg-cyan-500/10 px-3 py-2 text-sm font-semibold uppercase tracking-wide text-cyan-300 transition hover:bg-cyan-500/20 hover:shadow-[0_0_14px_rgba(34,211,238,0.5)] disabled:opacity-50 md:min-h-0"
+              >
+                {saving ? "Saving…" : "Save locations"}
+              </button>
+              {message && (
+                <span className="text-xs text-slate-400">{message}</span>
+              )}
+            </div>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
 function CalendarFeedCard({ physician }: { physician: PhysicianDTO }) {
   const [token, setToken] = useState(physician.icsToken);
   const [copied, setCopied] = useState(false);
@@ -1140,7 +1441,7 @@ function CalendarFeedCard({ physician }: { physician: PhysicianDTO }) {
       <p className="mb-3 text-xs text-slate-400">
         Subscribe to this physician&apos;s shifts in any calendar app. The feed
         covers the last 30 days through the end of next month across all
-        hospitals.
+        locations.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <div className="relative min-w-0 flex-1">

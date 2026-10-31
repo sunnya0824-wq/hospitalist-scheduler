@@ -2,10 +2,9 @@
 
 import { Suspense, useCallback, useEffect, useMemo, useState } from "react";
 import { useParams, useSearchParams } from "next/navigation";
-import { MONTH_NAMES, SHIFT_STYLES, getHospitalBadge } from "@/lib/shift-style";
-import { HOSPITAL_LABELS } from "@/lib/scheduler/shifts";
+import { MONTH_NAMES, WEEKDAY_SHORT } from "@/lib/shift-style";
+import { CATEGORY_LABELS, slotLabel, templateKeyOf } from "@/lib/scheduler/shifts";
 import { daysInMonth, toISODate, utcDate } from "@/lib/scheduler/dates";
-import { isHoliday, holidayName } from "@/lib/holidays";
 import { fetchMonth, fetchPhysicians } from "@/lib/client";
 import type {
   AssignmentDTO,
@@ -13,7 +12,7 @@ import type {
   PhysicianDTO,
 } from "@/lib/api-types";
 
-const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+const DAY_NAMES = WEEKDAY_SHORT;
 
 function PrintContent() {
   const routeParams = useParams<{ id: string }>();
@@ -59,8 +58,20 @@ function PrintContent() {
       arr.push(a);
       m.set(a.date, arr);
     }
+    for (const arr of m.values())
+      arr.sort((x, y) => x.startTime.localeCompare(y.startTime));
     return m;
   }, [mine]);
+
+  // Highest slot index per (date, template), so labels only number multi-slot shifts.
+  const maxSlot = useMemo(() => {
+    const m = new Map<string, number>();
+    for (const a of data?.assignments ?? []) {
+      const k = `${a.date}|${templateKeyOf(a)}`;
+      m.set(k, Math.max(m.get(k) ?? 0, a.slotIndex));
+    }
+    return m;
+  }, [data]);
 
   if (loading) {
     return <div className="p-8 text-slate-700">Loading…</div>;
@@ -76,12 +87,27 @@ function PrintContent() {
   for (let d = 1; d <= total; d++) cells.push(d);
   while (cells.length % 7 !== 0) cells.push(null);
 
+  const holidays = data?.holidays ?? {};
+  const multiLocation = (data?.locations.length ?? 0) > 1;
+  const labelOf = (a: AssignmentDTO) =>
+    slotLabel(
+      a.shiftCode,
+      a.slotIndex,
+      (maxSlot.get(`${a.date}|${templateKeyOf(a)}`) ?? 1) > 1
+    );
+
   // Summary tallies.
-  const byShift = new Map<string, number>();
-  const byHospital = new Map<string, number>();
+  const byShift = new Map<string, { name: string; category: AssignmentDTO["category"]; locationCode: string; count: number }>();
+  const byLocation = new Map<string, { name: string; count: number }>();
   for (const a of mine) {
-    byShift.set(a.shiftType, (byShift.get(a.shiftType) ?? 0) + 1);
-    byHospital.set(a.hospital, (byHospital.get(a.hospital) ?? 0) + 1);
+    const sk = templateKeyOf(a);
+    const s = byShift.get(sk) ?? { name: a.shiftName, category: a.category, locationCode: a.locationCode, count: 0 };
+    s.count += 1;
+    byShift.set(sk, s);
+    const lk = a.locationId ?? a.locationName;
+    const l = byLocation.get(lk) ?? { name: a.locationName, count: 0 };
+    l.count += 1;
+    byLocation.set(lk, l);
   }
 
   return (
@@ -131,7 +157,7 @@ function PrintContent() {
                   }
                   const iso = toISODate(utcDate(year, month, day));
                   const dayShifts = byDate.get(iso) ?? [];
-                  const holiday = isHoliday(iso);
+                  const holiday = holidays[iso];
                   return (
                     <td
                       key={col}
@@ -141,7 +167,7 @@ function PrintContent() {
                         <span className="text-xs font-semibold">{day}</span>
                         {holiday && (
                           <span className="text-[9px] font-medium text-fuchsia-700">
-                            {holidayName(iso)}
+                            {holiday}
                           </span>
                         )}
                       </div>
@@ -152,10 +178,10 @@ function PrintContent() {
                             className="rounded border border-slate-400 bg-slate-100 px-1 py-0.5 text-[10px] leading-tight"
                           >
                             <div className="font-medium">
-                              {SHIFT_STYLES[a.shiftType].label}
+                              {labelOf(a)} · {a.shiftName}
                             </div>
                             <div className="text-slate-600">
-                              {getHospitalBadge(a.hospital).short} ·{" "}
+                              {multiLocation ? `${a.locationCode} · ` : ""}
                               {a.startTime}–{a.endTime}
                             </div>
                           </div>
@@ -171,13 +197,19 @@ function PrintContent() {
 
         <div className="mt-6 grid grid-cols-2 gap-6">
           <div>
-            <h2 className="mb-2 text-sm font-bold uppercase">By shift type</h2>
+            <h2 className="mb-2 text-sm font-bold uppercase">By shift</h2>
             <table className="w-full text-sm">
               <tbody>
                 {Array.from(byShift.entries()).map(([k, v]) => (
                   <tr key={k} className="border-b border-slate-200">
-                    <td className="py-1">{SHIFT_STYLES[k as keyof typeof SHIFT_STYLES].label}</td>
-                    <td className="py-1 text-right font-medium">{v}</td>
+                    <td className="py-1">
+                      {v.name}
+                      {multiLocation ? ` (${v.locationCode})` : ""}
+                      <span className="ml-1 text-xs text-slate-500">
+                        {CATEGORY_LABELS[v.category]}
+                      </span>
+                    </td>
+                    <td className="py-1 text-right font-medium">{v.count}</td>
                   </tr>
                 ))}
                 <tr className="border-t border-slate-400">
@@ -190,15 +222,13 @@ function PrintContent() {
             </table>
           </div>
           <div>
-            <h2 className="mb-2 text-sm font-bold uppercase">By hospital</h2>
+            <h2 className="mb-2 text-sm font-bold uppercase">By location</h2>
             <table className="w-full text-sm">
               <tbody>
-                {Array.from(byHospital.entries()).map(([k, v]) => (
+                {Array.from(byLocation.entries()).map(([k, v]) => (
                   <tr key={k} className="border-b border-slate-200">
-                    <td className="py-1">
-                      {HOSPITAL_LABELS[k as keyof typeof HOSPITAL_LABELS]}
-                    </td>
-                    <td className="py-1 text-right font-medium">{v}</td>
+                    <td className="py-1">{v.name}</td>
+                    <td className="py-1 text-right font-medium">{v.count}</td>
                   </tr>
                 ))}
               </tbody>
