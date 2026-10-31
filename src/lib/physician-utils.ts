@@ -1,3 +1,5 @@
+import { isValidISODate } from "./scheduler/dates";
+
 /** Coerce numeric fields and strip anything not part of the Physician model. */
 export function sanitize(fields: Record<string, unknown>) {
   const numeric = [
@@ -95,8 +97,9 @@ export function validatePreferences(
     const v = fields[key];
     if (v === null || v === "" || v === undefined) continue;
     const n = Number(v);
-    if (!Number.isInteger(n) || n < 0) {
-      return `${key} must be a non-negative integer`;
+    const min = key === "preferredNightBlock" ? 1 : 0;
+    if (!Number.isInteger(n) || n < min || n > 31) {
+      return `${key} must be a whole number from ${min} to 31`;
     }
   }
   if ("avoidWeekdays" in fields) {
@@ -130,11 +133,34 @@ export function validateNumbers(fields: Record<string, unknown>): string | null 
   for (const key of nonNegative) {
     if (!(key in fields)) continue;
     const n = Number(fields[key]);
-    if (!Number.isFinite(n) || n < 0) return `${key} must be zero or more`;
+    if (!Number.isInteger(n) || n < 0 || n > 1000) return `${key} must be a whole number, zero or more`;
+  }
+  if ("monthlyShiftTarget" in fields && fields.monthlyShiftTarget !== null && fields.monthlyShiftTarget !== "") {
+    const n = Number(fields.monthlyShiftTarget);
+    if (!Number.isInteger(n) || n < 0 || n > 1000) return "Monthly target must be a whole number, zero or more";
+  }
+  if ("shiftPreference" in fields && !["MORE", "FEWER", "NEUTRAL"].includes(String(fields.shiftPreference))) {
+    return "shiftPreference must be MORE, FEWER or NEUTRAL";
+  }
+  if ("fullName" in fields && (typeof fields.fullName !== "string" || !fields.fullName.trim() || fields.fullName.length > 120)) {
+    return "Name is required (up to 120 characters)";
+  }
+  if ("notes" in fields && fields.notes !== null && (typeof fields.notes !== "string" || fields.notes.length > 5000)) {
+    return "Notes must be text (up to 5000 characters)";
+  }
+  for (const key of ["active", "nightEligible", "adminEligible"]) {
+    if (key in fields && typeof fields[key] !== "boolean") return `${key} must be true or false`;
   }
   if ("fteMultiplier" in fields) {
     const n = Number(fields.fteMultiplier);
     if (!Number.isFinite(n) || n < 0 || n > 2) return "FTE must be between 0 and 2";
   }
+  return null;
+}
+
+/** Validate date arrays sent for availability. Returns an error or null. */
+export function validateDateList(name: string, v: unknown): string | null {
+  if (v === undefined) return null;
+  if (!Array.isArray(v) || !v.every((d) => isValidISODate(d))) return `${name} must be a list of real dates (YYYY-MM-DD)`;
   return null;
 }

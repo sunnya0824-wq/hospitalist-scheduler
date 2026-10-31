@@ -2,7 +2,8 @@ import { NextResponse } from "next/server";
 import type { Prisma } from "@prisma/client";
 import { prisma } from "@/lib/prisma";
 import { fromISODate, toISODate } from "@/lib/scheduler/dates";
-import { sanitize, validatePreferences, validateNumbers, coerceLocationIds } from "@/lib/physician-utils";
+import { sanitize, validatePreferences, validateNumbers, coerceLocationIds, validateDateList } from "@/lib/physician-utils";
+import { asObject } from "@/lib/config-validate";
 import type { PhysicianDTO } from "@/lib/api-types";
 
 export const dynamic = "force-dynamic";
@@ -26,12 +27,19 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
-  const { unavailableDates = [], preferredDates = [], locationIds, ...fields } = body;
+  const body = asObject(await req.json().catch(() => ({})));
+  const { unavailableDates = [], preferredDates = [], locationIds, ...fields } = body as Record<string, unknown> & {
+    unavailableDates?: string[];
+    preferredDates?: string[];
+  };
   if (!fields.fullName || typeof fields.fullName !== "string" || !fields.fullName.trim()) {
     return NextResponse.json({ error: "Name is required" }, { status: 400 });
   }
-  const error = validatePreferences(fields) ?? validateNumbers(fields);
+  const error =
+    validatePreferences(fields) ??
+    validateNumbers(fields) ??
+    validateDateList("unavailableDates", unavailableDates) ??
+    validateDateList("preferredDates", preferredDates);
   if (error) return NextResponse.json({ error }, { status: 400 });
   const wanted = coerceLocationIds(locationIds) ?? [];
   const ids = wanted.length

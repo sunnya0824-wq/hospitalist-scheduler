@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { toISODate } from "@/lib/scheduler";
 import { checkManualAssignments, type SlotRef } from "@/lib/assignment-check";
+import { asObject } from "@/lib/config-validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -11,7 +12,7 @@ export const runtime = "nodejs";
  * pass every hard rule (same rules as the generator); rejects with a reason.
  */
 export async function POST(req: Request) {
-  const body = await req.json().catch(() => ({}));
+  const body = asObject(await req.json().catch(() => ({})));
   const aId = String(body.a ?? "");
   const bId = String(body.b ?? "");
   if (!aId || !bId || aId === bId) {

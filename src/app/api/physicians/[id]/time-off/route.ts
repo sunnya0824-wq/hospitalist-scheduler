@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { fromISODate, toISODate } from "@/lib/scheduler/dates";
+import { fromISODate, toISODate, isValidISODate } from "@/lib/scheduler/dates";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
@@ -22,8 +22,12 @@ export async function POST(
   req: Request,
   { params }: { params: { id: string } }
 ) {
-  const body = await req.json().catch(() => ({}));
-  const dates: string[] = Array.isArray(body.dates) ? body.dates : [];
+  const body = (await req.json().catch(() => ({}))) ?? {};
+  const raw: unknown[] = Array.isArray(body.dates) ? body.dates : [];
+  if (!raw.every((d) => isValidISODate(d))) {
+    return NextResponse.json({ error: "dates must be real dates (YYYY-MM-DD)" }, { status: 400 });
+  }
+  const dates = raw as string[];
   const note: string | null =
     typeof body.note === "string" && body.note.trim() ? body.note.trim() : null;
 
@@ -49,8 +53,12 @@ export async function DELETE(
   req: Request,
   { params }: { params: { id: string } }
 ) {
-  const body = await req.json().catch(() => ({}));
-  const dates: string[] = Array.isArray(body.dates) ? body.dates : [];
+  const body = (await req.json().catch(() => ({}))) ?? {};
+  const raw: unknown[] = Array.isArray(body.dates) ? body.dates : [];
+  if (!raw.every((d) => isValidISODate(d))) {
+    return NextResponse.json({ error: "dates must be real dates (YYYY-MM-DD)" }, { status: 400 });
+  }
+  const dates = raw as string[];
 
   await prisma.timeOffRequest.deleteMany({
     where: {

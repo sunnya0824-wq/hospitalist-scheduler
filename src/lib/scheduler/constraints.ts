@@ -19,6 +19,8 @@ export interface LedgerEntry {
 export class Ledger {
   /** Start date → category of the shift starting that day. */
   readonly starts = new Map<string, ShiftCategory>();
+  /** Start dates of night shifts (kept separately so a same-day double booking can't hide a night). */
+  readonly nightDates = new Set<string>();
   /** Start date → true when that shift runs past midnight. */
   readonly overnight = new Set<string>();
   total = 0;
@@ -33,7 +35,8 @@ export class Ledger {
    * tallied (prior month): they constrain but don't add to totals.
    */
   add(entry: LedgerEntry, rules: Pick<SchedulerRules, "weekendDays" | "holidays">, counts = true): void {
-    this.starts.set(entry.date, entry.category);
+    if (!this.starts.has(entry.date) || entry.category === "NIGHT") this.starts.set(entry.date, entry.category);
+    if (entry.category === "NIGHT") this.nightDates.add(entry.date);
     if (entry.endDate !== entry.date) this.overnight.add(entry.date);
     if (!counts) return;
     this.total += 1;
@@ -45,7 +48,7 @@ export class Ledger {
   }
 
   isNight(date: string): boolean {
-    return this.starts.get(date) === "NIGHT";
+    return this.nightDates.has(date);
   }
 
   /** Consecutive nights immediately before `date`. */
@@ -101,8 +104,7 @@ export class Ledger {
   /** Longest night block among the given dates' nights. */
   longestNightBlock(withinStart?: string, withinEnd?: string): number {
     let best = 0;
-    for (const [date, cat] of this.starts) {
-      if (cat !== "NIGHT") continue;
+    for (const date of this.nightDates) {
       if (withinStart && date < withinStart) continue;
       if (withinEnd && date > withinEnd) continue;
       if (this.isNight(addDaysISO(date, -1))) continue; // not a block start
@@ -116,7 +118,8 @@ export interface CandidateSlot {
   date: string;
   endDate: string;
   category: ShiftCategory;
-  locationId: string;
+  /** null/empty for slots whose location was deleted: no location check. */
+  locationId: string | null;
 }
 
 export interface CheckOptions {
@@ -147,7 +150,7 @@ export function checkAssignment(
   if (phys.unavailableDates.has(date)) return "unavailable on that date";
   if (isNight && !phys.nightEligible) return "not night eligible";
   if (category === "ADMIT" && !phys.adminEligible) return "not admit eligible";
-  if (!phys.eligibleLocations.has(slot.locationId)) return "not eligible for this location";
+  if (slot.locationId && !phys.eligibleLocations.has(slot.locationId)) return "not eligible for this location";
 
   // An overnight from yesterday is still running this morning. Only another
   // night (continuing the block) may follow it.

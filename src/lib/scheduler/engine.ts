@@ -193,7 +193,7 @@ export function runScheduler(
   const targets = new Map<string, number>();
   for (const p of active) targets.set(p.id, resolveTarget(p, monthlyAvg));
 
-  for (const ps of opts.priorShifts ?? []) {
+  for (const ps of [...(opts.priorShifts ?? []), ...(opts.followingShifts ?? [])]) {
     ledgers.get(ps.physicianId)?.add(ps, rules, false);
   }
 

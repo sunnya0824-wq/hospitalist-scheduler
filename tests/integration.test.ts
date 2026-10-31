@@ -161,3 +161,21 @@ test("empty install: no shift types → empty schedule, no crash", async () => {
   const m = await getMonthSchedule(2030, 1);
   assert.equal(m.coverage.length, 0);
 });
+
+test("regenerating a month respects the month after it", async () => {
+  await seedDatabase();
+  await generateSchedule(2027, 10);
+  await generateSchedule(2027, 9); // regenerate the earlier month
+  await generateSchedule(2027, 9);
+  const all = [...(await getMonthSchedule(2027, 9)).assignments, ...(await getMonthSchedule(2027, 10)).assignments].filter((a) => a.physicianId);
+  const by = new Map<string, { date: string; endDate: string; category: string }[]>();
+  for (const a of all) by.set(a.physicianId!, [...(by.get(a.physicianId!) ?? []), a]);
+  for (const [, list] of by) {
+    const starts = new Map(list.map((a) => [a.date, a.category]));
+    for (const a of list) {
+      if (a.endDate !== a.date && starts.has(a.endDate)) {
+        assert.ok(a.category === "NIGHT" && starts.get(a.endDate) === "NIGHT", `overlap at ${a.endDate}`);
+      }
+    }
+  }
+});

@@ -254,3 +254,37 @@ function addDaysLocal(iso: string, n: number) {
   d.setUTCDate(d.getUTCDate() + n);
   return d.toISOString().slice(0, 10);
 }
+
+// --- Regression tests from the independent review ------------------------
+
+test("shifts already scheduled next month are respected when regenerating", () => {
+  const phys = demoPhysicians();
+  // Everyone works a day shift on Dec 1 and Dec 2: no night may run into the
+  // morning of Dec 1, and no night block may end on Nov 29–30.
+  const following = phys
+    .filter((p) => p.active)
+    .flatMap((p) => [
+      { physicianId: p.id, date: "2026-12-01", endDate: "2026-12-01", category: "DAY" as const },
+      { physicianId: p.id, date: "2026-12-02", endDate: "2026-12-02", category: "DAY" as const },
+    ]);
+  const r = runScheduler(phys, NOV(), { followingShifts: following });
+  assert.deepEqual(validateSchedule(phys, r.assignments, { prior: following }), []);
+  const lateNights = r.assignments.filter((a) => a.category === "NIGHT" && a.date >= "2026-11-29" && a.physicianId);
+  assert.equal(lateNights.length, 0);
+});
+
+test("a same-day double booking cannot hide a night from the rest rule", () => {
+  const [p] = demoPhysicians();
+  const rules = resolveRules({}, []);
+  const led = new Ledger();
+  led.add({ date: "2026-11-10", endDate: "2026-11-11", category: "NIGHT" }, rules);
+  led.add({ date: "2026-11-10", endDate: "2026-11-10", category: "DAY" }, rules);
+  assert.ok(checkAssignment(p, { date: "2026-11-12", endDate: "2026-11-12", category: "DAY", locationId: "MAIN" }, led, rules));
+});
+
+test("slots at a deleted location (no location id) skip the location check", () => {
+  const p = demoPhysicians()[5];
+  const rules = resolveRules({}, []);
+  assert.equal(checkAssignment(p, { date: "2026-11-12", endDate: "2026-11-12", category: "DAY", locationId: null }, new Ledger(), rules), null);
+  assert.ok(checkAssignment(p, { date: "2026-11-12", endDate: "2026-11-12", category: "DAY", locationId: "NORTH" }, new Ledger(), rules));
+});

@@ -173,6 +173,11 @@ export interface SchedulerOptions {
    * toward rest, night blocks and consecutive days, but not toward totals.
    */
   priorShifts?: PriorShift[];
+  /**
+   * Shifts already scheduled just after the window (start of the next month).
+   * Same treatment: they constrain rest, blocks and days in a row, never totals.
+   */
+  followingShifts?: PriorShift[];
   /** Rules; anything omitted falls back to DEFAULT_RULES. */
   rules?: Partial<SchedulerRules>;
 }

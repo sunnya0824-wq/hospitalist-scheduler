@@ -49,7 +49,7 @@ export async function checkManualAssignments(
     if (!phys) return "physician not found";
     const why = checkAssignment(
       phys,
-      { date: slot.date, endDate: slot.endDate, category: slot.category, locationId: slot.locationId ?? "" },
+      { date: slot.date, endDate: slot.endDate, category: slot.category, locationId: slot.locationId },
       ledgers.get(physicianId)!,
       rules,
       { ignoreMaxShifts: true }

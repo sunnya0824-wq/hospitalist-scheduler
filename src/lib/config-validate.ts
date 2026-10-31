@@ -1,12 +1,20 @@
 /** Validation + coercion for configuration payloads from the Settings page. */
-import { isValidTime, normalizeDailyCounts, clampCount, SHIFT_CATEGORIES, type ShiftCategory } from "./scheduler";
+import { isValidTime, normalizeDailyCounts, clampCount } from "./scheduler/shifts";
+import { SHIFT_CATEGORIES, type ShiftCategory } from "./scheduler/types";
+import { isValidISODate } from "./scheduler/dates";
+
+/** A JSON body as a plain object ({} for null, arrays or non-objects). */
+export function asObject(v: unknown): Record<string, unknown> {
+  return v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {};
+}
 import { COLOR_NAMES } from "./shift-style";
 
 type Result<T> = { ok: true; data: T } | { ok: false; error: string };
 
 const str = (v: unknown, max = 80) => (typeof v === "string" ? v.trim().slice(0, max) : "");
 
-export function parseSettings(body: Record<string, unknown>): Result<Record<string, unknown>> {
+export function parseSettings(raw: unknown): Result<Record<string, unknown>> {
+  const body = asObject(raw);
   const data: Record<string, unknown> = {};
   if ("organizationName" in body) {
     const name = str(body.organizationName, 120);
@@ -38,7 +46,8 @@ export function parseSettings(body: Record<string, unknown>): Result<Record<stri
   return { ok: true, data };
 }
 
-export function parseLocation(body: Record<string, unknown>, partial: boolean): Result<Record<string, unknown>> {
+export function parseLocation(raw: unknown, partial: boolean): Result<Record<string, unknown>> {
+  const body = asObject(raw);
   const data: Record<string, unknown> = {};
   if (!partial || "name" in body) {
     const name = str(body.name);
@@ -56,7 +65,8 @@ export function parseLocation(body: Record<string, unknown>, partial: boolean): 
   return { ok: true, data };
 }
 
-export function parseTemplate(body: Record<string, unknown>, partial: boolean): Result<Record<string, unknown>> {
+export function parseTemplate(raw: unknown, partial: boolean): Result<Record<string, unknown>> {
+  const body = asObject(raw);
   const data: Record<string, unknown> = {};
   if (!partial) {
     const locationId = str(body.locationId, 64);
@@ -98,12 +108,11 @@ export function parseTemplate(body: Record<string, unknown>, partial: boolean): 
   return { ok: true, data };
 }
 
-export function parseHoliday(body: Record<string, unknown>): Result<{ date: string; name: string; recurring: boolean }> {
+export function parseHoliday(raw: unknown): Result<{ date: string; name: string; recurring: boolean }> {
+  const body = asObject(raw);
   const date = str(body.date, 10);
   const name = str(body.name);
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(new Date(date + "T00:00:00Z").getTime())) {
-    return { ok: false, error: "Date must be YYYY-MM-DD" };
-  }
+  if (!isValidISODate(date)) return { ok: false, error: "Date must be a real date (YYYY-MM-DD)" };
   if (!name) return { ok: false, error: "Holiday name is required" };
   return { ok: true, data: { date, name, recurring: Boolean(body.recurring) } };
 }

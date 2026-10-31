@@ -1,16 +1,24 @@
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { fromISODate } from "@/lib/scheduler/dates";
-import { sanitize, validatePreferences, validateNumbers, coerceLocationIds } from "@/lib/physician-utils";
+import { sanitize, validatePreferences, validateNumbers, coerceLocationIds, validateDateList } from "@/lib/physician-utils";
+import { asObject } from "@/lib/config-validate";
 
 export const dynamic = "force-dynamic";
 export const runtime = "nodejs";
 
 export async function PUT(req: Request, { params }: { params: { id: string } }) {
-  const body = await req.json().catch(() => ({}));
-  const { unavailableDates, preferredDates, locationIds, ...fields } = body;
+  const body = asObject(await req.json().catch(() => ({})));
+  const { unavailableDates, preferredDates, locationIds, ...fields } = body as Record<string, unknown> & {
+    unavailableDates?: string[];
+    preferredDates?: string[];
+  };
 
-  const error = validatePreferences(fields) ?? validateNumbers(fields);
+  const error =
+    validatePreferences(fields) ??
+    validateNumbers(fields) ??
+    validateDateList("unavailableDates", unavailableDates) ??
+    validateDateList("preferredDates", preferredDates);
   if (error) return NextResponse.json({ error }, { status: 400 });
 
   const exists = await prisma.physician.findUnique({ where: { id: params.id }, select: { id: true } });

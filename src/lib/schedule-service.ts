@@ -100,10 +100,27 @@ export function monthRange(year: number, month: number): { start: string; end: s
  * Shifts in the days before a date that still constrain it: rest after a
  * night block, block length, and days-in-a-row all look back.
  */
-export async function loadPriorShifts(beforeISO: string, lookbackDays = 21): Promise<PriorShift[]> {
-  const start = fromISODate(addDaysISO(beforeISO, -lookbackDays));
+export async function loadPriorShifts(beforeISO: string, lookbackDays = OUTSIDE_WINDOW_DAYS): Promise<PriorShift[]> {
+  return loadShiftsBetween(addDaysISO(beforeISO, -lookbackDays), addDaysISO(beforeISO, -1));
+}
+
+/**
+ * Days looked at on each side of a month. Covers the largest allowed
+ * max-days-in-a-row / max-nights-in-a-row (31) plus rest days.
+ */
+export const OUTSIDE_WINDOW_DAYS = 40;
+
+/**
+ * Shifts already scheduled in the days after a date (e.g. next month, when a
+ * month is regenerated after the following one exists).
+ */
+export async function loadFollowingShifts(afterISO: string, days = OUTSIDE_WINDOW_DAYS): Promise<PriorShift[]> {
+  return loadShiftsBetween(addDaysISO(afterISO, 1), addDaysISO(afterISO, days));
+}
+
+async function loadShiftsBetween(startISO: string, endISO: string): Promise<PriorShift[]> {
   const rows = await prisma.shiftAssignment.findMany({
-    where: { date: { gte: start, lt: fromISODate(beforeISO) }, physicianId: { not: null } },
+    where: { date: { gte: fromISODate(startISO), lte: fromISODate(endISO) }, physicianId: { not: null } },
     select: { physicianId: true, date: true, endDate: true, category: true },
   });
   return rows.map((r) => ({
@@ -125,20 +142,23 @@ export async function generateSchedule(
   allowOverMax = false,
   overrides?: CoverageOverrides
 ): Promise<SchedulerResult> {
+  // Overrides are only saved together with the finished schedule, so a
+  // failed run leaves the month exactly as it was.
   const scheduleMonth = await prisma.scheduleMonth.upsert({
     where: { year_month: { year, month } },
-    update: overrides ? { coverageOverrides: normalizeOverrides(overrides) } : {},
-    create: { year, month, coverageOverrides: normalizeOverrides(overrides ?? {}) },
+    update: {},
+    create: { year, month },
   });
-  const activeOverrides = normalizeOverrides(scheduleMonth.coverageOverrides);
-  const run = await prisma.scheduleGenerationRun.create({ data: { scheduleMonthId: scheduleMonth.id } });
+  const activeOverrides = overrides ? normalizeOverrides(overrides) : normalizeOverrides(scheduleMonth.coverageOverrides);
+  const startedAt = new Date();
 
   const { start, end } = monthRange(year, month);
-  const [physicians, locations, rules, priorShifts, existing] = await Promise.all([
+  const [physicians, locations, rules, priorShifts, followingShifts, existing] = await Promise.all([
     loadSchedulerPhysicians(),
     getLocations(),
     getRules(start, end),
     loadPriorShifts(start),
+    loadFollowingShifts(end),
     prisma.shiftAssignment.findMany({ where: { scheduleMonthId: scheduleMonth.id } }),
   ]);
 
@@ -158,7 +178,7 @@ export async function generateSchedule(
     return { ...slot, physicianId: keep.physicianId, isLocked: keep.isLocked, isManual: keep.isManual };
   });
 
-  const result = runScheduler(physicians, slots, { allowOverMax, priorShifts, rules });
+  const result = runScheduler(physicians, slots, { allowOverMax, priorShifts, followingShifts, rules });
 
   // Locked/manual slots whose template no longer needs them this month.
   for (const orphan of preserved.values()) {
@@ -194,11 +214,12 @@ export async function generateSchedule(
     }),
     prisma.scheduleMonth.update({
       where: { id: scheduleMonth.id },
-      data: { status: "GENERATED", generatedAt: new Date() },
+      data: { status: "GENERATED", generatedAt: new Date(), coverageOverrides: activeOverrides },
     }),
-    prisma.scheduleGenerationRun.update({
-      where: { id: run.id },
+    prisma.scheduleGenerationRun.create({
       data: {
+        scheduleMonthId: scheduleMonth.id,
+        startedAt,
         finishedAt: new Date(),
         success: true,
         warnings: result.warnings,
