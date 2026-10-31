@@ -232,6 +232,7 @@ async function monthCoverage(overridesRaw: unknown): Promise<MonthCoverageDTO[]>
         category: t.category,
         dailyCounts: t.dailyCounts,
         holidayCount: t.holidayCount,
+        color: t.color,
         override: t.id in overrides ? overrides[t.id] : null,
       });
     }

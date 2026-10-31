@@ -195,6 +195,7 @@ export interface MonthCoverageDTO {
   category: ShiftCategory;
   dailyCounts: number[];
   holidayCount: number | null;
+  color: string;
   /** Slots/day for every day this month, or null to use the defaults. */
   override: number | null;
 }

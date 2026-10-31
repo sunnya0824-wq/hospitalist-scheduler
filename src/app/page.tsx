@@ -18,7 +18,6 @@ import {
 import {
   MONTH_NAMES,
   WEEKDAY_SHORT,
-  CATEGORY_DEFAULT_COLOR,
 } from "@/lib/shift-style";
 import { daysInMonth, monthDates, weekdayOf } from "@/lib/scheduler/dates";
 import {
@@ -258,7 +257,7 @@ export default function DashboardPage() {
     }
     return coverage.map((c) => ({
       name: c.name,
-      color: CATEGORY_DEFAULT_COLOR[c.category],
+      color: c.color,
     }));
   }, [assignments, coverage]);
 
